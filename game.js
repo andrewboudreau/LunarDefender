@@ -68,7 +68,6 @@ function getRandomUpgrade() {
 // ============== AUDIO SYSTEM ==============
 let audioCtx = null;
 let masterGain = null;
-let thrustOsc = null;
 let thrustGain = null;
 
 function initAudio() {
@@ -143,46 +142,51 @@ function playExplosion(size = 0) {
     noise.start();
 }
 
-// Thrust sound - continuous rumble
+// Thrust sound - soft white noise with bass
+let thrustNoise = null;
+let thrustFilter = null;
+
 function startThrust() {
     ensureAudio();
-    if (thrustOsc) return;
+    if (thrustNoise) return;
 
-    thrustOsc = audioCtx.createOscillator();
+    // Create noise buffer
+    const bufferSize = audioCtx.sampleRate * 2;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+    }
+
+    thrustNoise = audioCtx.createBufferSource();
+    thrustNoise.buffer = buffer;
+    thrustNoise.loop = true;
+
+    // Low-pass filter for soft bass rumble
+    thrustFilter = audioCtx.createBiquadFilter();
+    thrustFilter.type = 'lowpass';
+    thrustFilter.frequency.value = 150;
+    thrustFilter.Q.value = 1;
+
     thrustGain = audioCtx.createGain();
-
-    thrustOsc.type = 'sawtooth';
-    thrustOsc.frequency.value = 55;
-
-    // Add some modulation for rumble effect
-    const lfo = audioCtx.createOscillator();
-    const lfoGain = audioCtx.createGain();
-    lfo.frequency.value = 20;
-    lfoGain.gain.value = 10;
-    lfo.connect(lfoGain);
-    lfoGain.connect(thrustOsc.frequency);
-    lfo.start();
-
     thrustGain.gain.setValueAtTime(0, audioCtx.currentTime);
-    thrustGain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.1);
+    thrustGain.gain.linearRampToValueAtTime(0.25, audioCtx.currentTime + 0.15);
 
-    thrustOsc.connect(thrustGain);
+    thrustNoise.connect(thrustFilter);
+    thrustFilter.connect(thrustGain);
     thrustGain.connect(masterGain);
-    thrustOsc.start();
-
-    thrustOsc._lfo = lfo;
+    thrustNoise.start();
 }
 
 function stopThrust() {
-    if (!thrustOsc) return;
-    thrustGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
-    const osc = thrustOsc;
-    const lfo = thrustOsc._lfo;
+    if (!thrustNoise) return;
+    thrustGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15);
+    const noise = thrustNoise;
     setTimeout(() => {
-        osc.stop();
-        if (lfo) lfo.stop();
-    }, 150);
-    thrustOsc = null;
+        noise.stop();
+    }, 200);
+    thrustNoise = null;
+    thrustFilter = null;
     thrustGain = null;
 }
 
