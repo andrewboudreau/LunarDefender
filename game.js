@@ -319,6 +319,7 @@ let gameRunning = false;
 let myId = null;
 let myUserId = null;
 let myName = null;
+let currentRoomCode = null;  // Store room code for sharing
 let peer = null;
 let connections = []; // For host: all client connections
 let hostConnection = null; // For client: connection to host
@@ -337,6 +338,77 @@ let keys = {
     mine: false    // E key for mining
 };
 let lastShot = 0;
+
+// ============== SHARING & INVITES ==============
+function getInviteUrl(roomCode) {
+    const url = new URL(window.location.href);
+    url.search = ''; // Clear existing params
+    url.searchParams.set('join', roomCode);
+    return url.toString();
+}
+
+async function shareGame(roomCode) {
+    const url = getInviteUrl(roomCode);
+    const shareData = {
+        title: 'Lunar Defender',
+        text: `Join my game! Code: ${roomCode}`,
+        url: url
+    };
+
+    const statusEl = document.getElementById('share-status');
+
+    // Try native share first (mobile)
+    if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+        try {
+            await navigator.share(shareData);
+            if (statusEl) statusEl.textContent = 'Shared!';
+            return true;
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                console.log('Share failed, falling back to clipboard');
+            }
+        }
+    }
+
+    // Fallback: copy to clipboard
+    try {
+        await navigator.clipboard.writeText(url);
+        if (statusEl) {
+            statusEl.textContent = 'Link copied!';
+            setTimeout(() => { statusEl.textContent = ''; }, 2000);
+        }
+        return true;
+    } catch (err) {
+        // Final fallback: show URL
+        if (statusEl) statusEl.textContent = url;
+        return false;
+    }
+}
+
+function checkAutoJoin() {
+    const params = new URLSearchParams(window.location.search);
+    const joinCode = params.get('join');
+
+    if (joinCode && joinCode.length === 6) {
+        console.log('Auto-joining room:', joinCode);
+
+        // Switch to join menu and fill in code
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('join-menu').classList.remove('hidden');
+        document.getElementById('room-input').value = joinCode.toUpperCase();
+
+        // Auto-connect after a short delay
+        setTimeout(() => {
+            setupClient(joinCode.toUpperCase());
+        }, 500);
+
+        // Clean up URL
+        window.history.replaceState({}, '', window.location.pathname);
+
+        return true;
+    }
+    return false;
+}
 
 // ============== UTILITIES ==============
 function generateRoomCode() {
@@ -1004,6 +1076,7 @@ function checkCollisions() {
 // ============== NETWORKING ==============
 function setupHost() {
     const roomCode = generateRoomCode();
+    currentRoomCode = roomCode;  // Store for sharing
     document.getElementById('room-code').textContent = roomCode;
 
     peer = new Peer(roomCode, {
@@ -1014,7 +1087,7 @@ function setupHost() {
         console.log('Host peer opened with ID:', id);
         myId = id;
         isHost = true;
-        document.getElementById('status').textContent = 'Room ready! Share the code above.';
+        document.getElementById('status').textContent = 'Room ready! Tap INVITE to share.';
     });
 
     peer.on('connection', (conn) => {
@@ -1306,6 +1379,11 @@ function startGame() {
     document.getElementById('controls-help').classList.remove('hidden');
     document.getElementById('touch-controls').classList.remove('hidden');
     document.getElementById('fullscreen-btn').style.display = 'block';
+
+    // Show in-game invite button for host
+    if (isHost && currentRoomCode) {
+        document.getElementById('ingame-invite-btn').style.display = 'block';
+    }
 
     // Size canvas to fill screen while maintaining aspect ratio
     resizeCanvas();
@@ -1689,6 +1767,19 @@ function setupMenu() {
     document.getElementById('back-btn-join').addEventListener('click', () => {
         location.reload();
     });
+
+    // Share buttons
+    document.getElementById('share-btn').addEventListener('click', () => {
+        if (currentRoomCode) {
+            shareGame(currentRoomCode);
+        }
+    });
+
+    document.getElementById('ingame-invite-btn').addEventListener('click', () => {
+        if (currentRoomCode) {
+            shareGame(currentRoomCode);
+        }
+    });
 }
 
 // ============== INIT ==============
@@ -1708,6 +1799,13 @@ function init() {
     window.addEventListener('beforeunload', saveCurrentStats);
 
     setupMenu();
+
+    // Check for auto-join link (after menu setup so buttons work)
+    if (checkAutoJoin()) {
+        setupInput();
+        setupFullscreen();
+        return;
+    }
     setupInput();
     setupFullscreen();
 
