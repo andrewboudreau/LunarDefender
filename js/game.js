@@ -127,6 +127,17 @@ function exitMiningMode(success, upgrade) {
     const myShip = ships[myId];
     if (!myShip) return;
 
+    // Find the rock and reposition ship to its current location
+    const rock = rocks.find(r => r.id === myShip.miningRockId);
+    if (rock) {
+        // Position ship just outside the rock, matching its velocity
+        const exitAngle = myShip.angle;
+        myShip.x = rock.x + Math.cos(exitAngle) * (rock.radius + 20);
+        myShip.y = rock.y + Math.sin(exitAngle) * (rock.radius + 20);
+        myShip.vx = rock.vx;
+        myShip.vy = rock.vy;
+    }
+
     myShip.state = PlayerState.FLYING;
 
     if (success && upgrade) {
