@@ -65,6 +65,199 @@ function getRandomUpgrade() {
     return UPGRADES[keys[Math.floor(Math.random() * keys.length)]];
 }
 
+// ============== AUDIO SYSTEM ==============
+let audioCtx = null;
+let masterGain = null;
+let thrustOsc = null;
+let thrustGain = null;
+
+function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.3;
+    masterGain.connect(audioCtx.destination);
+}
+
+function ensureAudio() {
+    if (!audioCtx) initAudio();
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+// Shoot sound - quick "pew"
+function playShoot() {
+    ensureAudio();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.1);
+
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+    osc.connect(gain);
+    gain.connect(masterGain);
+
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1);
+}
+
+// Explosion - low boom with noise
+function playExplosion(size = 0) {
+    ensureAudio();
+
+    // Base frequency depends on rock size (bigger = lower)
+    const baseFreq = 150 - size * 30;
+    const duration = 0.3 + size * 0.1;
+
+    // Tone component
+    const osc = audioCtx.createOscillator();
+    const oscGain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(baseFreq, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + duration);
+    oscGain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+    oscGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(oscGain);
+    oscGain.connect(masterGain);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+
+    // Noise component
+    const bufferSize = audioCtx.sampleRate * duration;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+    }
+    const noise = audioCtx.createBufferSource();
+    const noiseGain = audioCtx.createGain();
+    noise.buffer = buffer;
+    noiseGain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    noise.connect(noiseGain);
+    noiseGain.connect(masterGain);
+    noise.start();
+}
+
+// Thrust sound - continuous rumble
+function startThrust() {
+    ensureAudio();
+    if (thrustOsc) return;
+
+    thrustOsc = audioCtx.createOscillator();
+    thrustGain = audioCtx.createGain();
+
+    thrustOsc.type = 'sawtooth';
+    thrustOsc.frequency.value = 55;
+
+    // Add some modulation for rumble effect
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    lfo.frequency.value = 20;
+    lfoGain.gain.value = 10;
+    lfo.connect(lfoGain);
+    lfoGain.connect(thrustOsc.frequency);
+    lfo.start();
+
+    thrustGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    thrustGain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.1);
+
+    thrustOsc.connect(thrustGain);
+    thrustGain.connect(masterGain);
+    thrustOsc.start();
+
+    thrustOsc._lfo = lfo;
+}
+
+function stopThrust() {
+    if (!thrustOsc) return;
+    thrustGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+    const osc = thrustOsc;
+    const lfo = thrustOsc._lfo;
+    setTimeout(() => {
+        osc.stop();
+        if (lfo) lfo.stop();
+    }, 150);
+    thrustOsc = null;
+    thrustGain = null;
+}
+
+// Chime - pleasant ascending notes
+function playChime() {
+    ensureAudio();
+    const notes = [523, 659, 784]; // C5, E5, G5
+    notes.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, audioCtx.currentTime + i * 0.1);
+        gain.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + i * 0.1 + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + i * 0.1 + 0.3);
+        osc.connect(gain);
+        gain.connect(masterGain);
+        osc.start(audioCtx.currentTime + i * 0.1);
+        osc.stop(audioCtx.currentTime + i * 0.1 + 0.3);
+    });
+}
+
+// Success fanfare - for upgrades and landing
+function playSuccess() {
+    ensureAudio();
+    const notes = [392, 523, 659, 784]; // G4, C5, E5, G5
+    notes.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, audioCtx.currentTime + i * 0.12);
+        gain.gain.linearRampToValueAtTime(0.25, audioCtx.currentTime + i * 0.12 + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + i * 0.12 + 0.4);
+        osc.connect(gain);
+        gain.connect(masterGain);
+        osc.start(audioCtx.currentTime + i * 0.12);
+        osc.stop(audioCtx.currentTime + i * 0.12 + 0.4);
+    });
+}
+
+// Crash sound - harsh noise burst
+function playCrash() {
+    ensureAudio();
+    const duration = 0.5;
+    const bufferSize = audioCtx.sampleRate * duration;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 1.5);
+    }
+    const noise = audioCtx.createBufferSource();
+    const gain = audioCtx.createGain();
+    noise.buffer = buffer;
+    gain.gain.value = 0.4;
+    noise.connect(gain);
+    gain.connect(masterGain);
+    noise.start();
+}
+
+// Click sound - for UI
+function playClick() {
+    ensureAudio();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 660;
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.05);
+}
+
 // ============== LUNAR LANDER CONFIG ==============
 const LANDER_CONFIG = {
     gravity: 0.015,
@@ -699,11 +892,15 @@ function updateLander() {
     if (keys.right) L.angle += LANDER_CONFIG.rotSpeed;
 
     // Thrust
+    const wasThrusting = L.thrustOn;
     L.thrustOn = keys.up && L.fuel > 0;
     if (L.thrustOn) {
         L.vx += Math.cos(L.angle) * LANDER_CONFIG.thrust;
         L.vy += Math.sin(L.angle) * LANDER_CONFIG.thrust;
         L.fuel -= LANDER_CONFIG.fuelUsage;
+        if (!wasThrusting) startThrust();
+    } else if (wasThrusting) {
+        stopThrust();
     }
 
     // Move
@@ -721,6 +918,7 @@ function updateLander() {
         const angleFromVertical = Math.abs(L.angle + Math.PI / 2);
         const onPad = isOnLandingPad(L.x, L.landingPads);
 
+        stopThrust(); // Stop any thrust sound
         if (onPad && speed < LANDER_CONFIG.maxLandingSpeed && angleFromVertical < LANDER_CONFIG.maxLandingAngle) {
             // SUCCESS!
             L.status = 'landed';
@@ -728,9 +926,11 @@ function updateLander() {
             L.y = terrainY - 10;
             L.vx = 0;
             L.vy = 0;
+            playSuccess();
         } else {
             // CRASH!
             L.status = 'crashed';
+            playCrash();
         }
     }
 
@@ -976,8 +1176,12 @@ function checkNearbyRocks(ship) {
             // Continue countdown
             ship.miningCountdown = (ship.miningCountdown || 0) + 1;
             // 2 seconds at 60fps = 120 frames
-            if (ship.miningCountdown >= 120) {
+            if (ship.miningCountdown >= 120 && !ship.miningReady) {
                 ship.miningReady = true;
+                // Play chime when ready (only for local player)
+                if (ship.id === myId) {
+                    playChime();
+                }
             }
         } else {
             // Different rock or velocity not matched - reset
@@ -1074,7 +1278,11 @@ function checkCollisions() {
 
                 const rockX = rock.x;
                 const rockY = rock.y;
+                const rockSize = rock.sizeIndex;
                 rocks.splice(j, 1);
+
+                // Play explosion sound (size affects pitch/duration)
+                playExplosion(rockSize);
 
                 // Explosive chain reaction - damage nearby rocks
                 if (isExplosive) {
@@ -1495,7 +1703,9 @@ function update() {
             // Track host's thrust
             if (input.up && !thrustStartTime[myId]) {
                 thrustStartTime[myId] = Date.now();
+                startThrust();
             } else if (!input.up && thrustStartTime[myId]) {
+                stopThrust();
                 const duration = (Date.now() - thrustStartTime[myId]) / 1000;
                 if (myShip.stats) {
                     myShip.stats.fuelUsed += duration * CONFIG.fuelPerThrust * 60;
@@ -1545,6 +1755,11 @@ function update() {
 
 // Fire bullets with upgrade support
 function fireBullets(ship) {
+    // Only play sound for local player
+    if (ship.id === myId) {
+        playShoot();
+    }
+
     if (ship.upgrades.includes('spread_shot')) {
         // Fire 3 bullets in a cone
         for (let i = -1; i <= 1; i++) {
@@ -1799,6 +2014,7 @@ function setupMenu() {
     });
 
     document.getElementById('host-btn').addEventListener('click', () => {
+        playClick();
         // Save name before hosting
         const name = nameInput.value.trim() || nameInput.placeholder;
         setDisplayName(name);
@@ -1810,6 +2026,7 @@ function setupMenu() {
     });
 
     document.getElementById('join-btn').addEventListener('click', () => {
+        playClick();
         // Save name before joining
         const name = nameInput.value.trim() || nameInput.placeholder;
         setDisplayName(name);
@@ -1820,6 +2037,7 @@ function setupMenu() {
     });
 
     document.getElementById('connect-btn').addEventListener('click', () => {
+        playClick();
         const code = document.getElementById('room-input').value.toUpperCase().trim();
         if (code.length === 6) {
             setupClient(code);
@@ -1835,6 +2053,7 @@ function setupMenu() {
     });
 
     document.getElementById('start-game-btn').addEventListener('click', () => {
+        playClick();
         if (isHost) {
             startGame();
         }
@@ -1850,12 +2069,14 @@ function setupMenu() {
 
     // Share buttons
     document.getElementById('share-btn').addEventListener('click', () => {
+        playClick();
         if (currentRoomCode) {
             shareGame(currentRoomCode);
         }
     });
 
     document.getElementById('ingame-invite-btn').addEventListener('click', () => {
+        playClick();
         if (currentRoomCode) {
             shareGame(currentRoomCode);
         }
