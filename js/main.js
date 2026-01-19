@@ -54,6 +54,9 @@ function init() {
         },
         onEventReceived: (event) => {
             handleGameEvent(event);
+        },
+        getGameRunning: () => {
+            return getGameState().gameRunning;
         }
     });
 

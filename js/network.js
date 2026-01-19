@@ -7,7 +7,6 @@ import { createShip, randomColor } from './entities/ship.js';
 import { createBullet } from './entities/projectiles.js';
 import { GameEvents, createEvent, logEvent } from './stats.js';
 import { registerRoom, unregisterRoom, startRoomUpdates, stopRoomUpdates } from './lobby.js';
-import { getGameState } from './game.js';
 
 let peer = null;
 let connections = []; // For host: all client connections
@@ -17,11 +16,13 @@ let hostConnection = null; // For client: connection to host
 let onStateUpdate = null;
 let onGameStart = null;
 let onEventReceived = null;
+let getGameRunning = null;
 
 export function setPeerCallbacks(callbacks) {
     onStateUpdate = callbacks.onStateUpdate;
     onGameStart = callbacks.onGameStart;
     onEventReceived = callbacks.onEventReceived;
+    getGameRunning = callbacks.getGameRunning;
 }
 
 export function getPeer() {
@@ -260,14 +261,14 @@ function handleClientMessage(clientId, data, ships) {
         // Send current state to new player
         const conn = connections.find(c => c.peer === clientId);
         if (conn && conn.open) {
-            const gameState = getGameState();
+            const isGameRunning = getGameRunning ? getGameRunning() : false;
             conn.send({
                 type: 'init',
                 playerId: clientId,
                 ships: ships,
                 rocks: rocksRef || [],
                 bullets: bulletsRef || [],
-                gameRunning: gameState.gameRunning
+                gameRunning: isGameRunning
             });
         }
 
