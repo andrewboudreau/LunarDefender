@@ -570,20 +570,100 @@ function updatePlayerCount() {
     document.getElementById('hud-players').textContent = count;
 }
 
+// ============== CANVAS & FULLSCREEN ==============
+function resizeCanvas() {
+    const wrapper = document.getElementById('game-wrapper');
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+
+    // Calculate canvas size maintaining aspect ratio
+    const gameRatio = CONFIG.width / CONFIG.height;
+    const screenRatio = screenWidth / screenHeight;
+
+    if (screenRatio > gameRatio) {
+        // Screen is wider than game - fit to height
+        canvas.height = CONFIG.height;
+        canvas.width = CONFIG.width;
+    } else {
+        // Screen is taller than game - fit to width
+        canvas.height = CONFIG.height;
+        canvas.width = CONFIG.width;
+    }
+
+    // The CSS handles the visual scaling, canvas stays at logical resolution
+    canvas.width = CONFIG.width;
+    canvas.height = CONFIG.height;
+}
+
+function toggleFullscreen() {
+    const elem = document.documentElement;
+
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        // Enter fullscreen
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+            elem.webkitRequestFullscreen();
+        }
+
+        // Lock to landscape on mobile if supported
+        if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+        }
+    } else {
+        // Exit fullscreen
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        }
+    }
+}
+
+function setupFullscreen() {
+    const btn = document.getElementById('fullscreen-btn');
+    btn.addEventListener('click', toggleFullscreen);
+
+    // Update button icon based on fullscreen state
+    document.addEventListener('fullscreenchange', updateFullscreenButton);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+
+    // Resize canvas when orientation/screen changes
+    window.addEventListener('resize', () => {
+        if (gameRunning) resizeCanvas();
+    });
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+            if (gameRunning) resizeCanvas();
+        }, 100);
+    });
+}
+
+function updateFullscreenButton() {
+    const btn = document.getElementById('fullscreen-btn');
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+        btn.textContent = '⛶';
+        btn.title = 'Exit Fullscreen';
+    } else {
+        btn.textContent = '⛶';
+        btn.title = 'Fullscreen';
+    }
+}
+
 // ============== GAME LOOP ==============
 function startGame() {
     gameRunning = true;
 
-    // Hide menu, show canvas
+    // Hide menu, show game
     document.getElementById('menu').classList.add('hidden');
-    canvas.style.display = 'block';
+    document.getElementById('game-wrapper').style.display = 'block';
     document.getElementById('hud').style.display = 'block';
     document.getElementById('controls-help').classList.remove('hidden');
     document.getElementById('touch-controls').classList.remove('hidden');
+    document.getElementById('fullscreen-btn').style.display = 'block';
 
-    // Size canvas
-    canvas.width = CONFIG.width;
-    canvas.height = CONFIG.height;
+    // Size canvas to fill screen while maintaining aspect ratio
+    resizeCanvas();
 
     if (isHost) {
         // Create host ship if not exists
@@ -826,6 +906,7 @@ function init() {
 
     setupMenu();
     setupInput();
+    setupFullscreen();
 
     // Check for bot mode via URL parameter
     const params = new URLSearchParams(window.location.search);
