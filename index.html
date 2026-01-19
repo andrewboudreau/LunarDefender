@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lunar Defender - Co-op Space Rocks</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #0a0a1a;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        #menu {
+            text-align: center;
+            padding: 20px;
+        }
+        #menu h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            color: #4af;
+            text-shadow: 0 0 10px #4af;
+        }
+        #menu button {
+            background: #224;
+            color: #4af;
+            border: 2px solid #4af;
+            padding: 15px 30px;
+            margin: 10px;
+            font-size: 1.2em;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        #menu button:hover {
+            background: #4af;
+            color: #000;
+        }
+        #menu input {
+            background: #112;
+            color: #fff;
+            border: 2px solid #4af;
+            padding: 15px;
+            font-size: 1.2em;
+            text-align: center;
+            font-family: inherit;
+            width: 200px;
+        }
+        #room-code {
+            font-size: 2em;
+            color: #4f4;
+            margin: 20px 0;
+            letter-spacing: 5px;
+        }
+        #status {
+            color: #888;
+            margin: 10px 0;
+        }
+        #player-list {
+            color: #4af;
+            margin: 10px 0;
+        }
+        canvas {
+            display: none;
+            border: 2px solid #4af;
+            box-shadow: 0 0 20px rgba(68, 170, 255, 0.3);
+        }
+        #hud {
+            display: none;
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            font-size: 1.2em;
+        }
+        #controls-help {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            font-size: 0.9em;
+            color: #666;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="menu">
+            <h1>🚀 LUNAR DEFENDER</h1>
+            <p style="color: #888; margin-bottom: 30px;">Co-op Space Rocks</p>
+
+            <div id="main-menu">
+                <button id="host-btn">HOST GAME</button>
+                <br>
+                <button id="join-btn">JOIN GAME</button>
+            </div>
+
+            <div id="host-menu" class="hidden">
+                <p>Share this code with friends:</p>
+                <div id="room-code">------</div>
+                <div id="player-list">Players: 1</div>
+                <div id="status">Waiting for players...</div>
+                <button id="start-game-btn">START GAME</button>
+                <br>
+                <button id="back-btn-host">BACK</button>
+            </div>
+
+            <div id="join-menu" class="hidden">
+                <p>Enter room code:</p>
+                <input type="text" id="room-input" maxlength="6" placeholder="XXXXXX">
+                <br>
+                <button id="connect-btn">CONNECT</button>
+                <br>
+                <div id="join-status"></div>
+                <button id="back-btn-join">BACK</button>
+            </div>
+        </div>
+
+        <canvas id="game"></canvas>
+        <div id="hud">
+            <div>Players: <span id="hud-players">1</span></div>
+            <div>Rocks: <span id="hud-rocks">0</span></div>
+        </div>
+        <div id="controls-help" class="hidden">
+            ← → Rotate | ↑ Thrust | SPACE Shoot
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
