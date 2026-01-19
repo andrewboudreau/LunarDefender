@@ -139,6 +139,7 @@ export function setupHost(myName, myUserId, ships, onReady) {
         });
 
         conn.on('data', (data) => {
+            console.log('Host received data from client:', data.type, data);
             handleClientMessage(conn.peer, data, ships);
         });
 
@@ -197,14 +198,21 @@ export function setupClient(roomCode, myName, myUserId, onReady) {
 
         hostConnection.on('open', () => {
             console.log('Connected to host');
-            document.getElementById('join-status').textContent = 'Connected! Waiting for game...';
+            document.getElementById('join-status').textContent = 'Connected! Sending join...';
 
             // Send our info to host
-            hostConnection.send({
-                type: 'join',
-                name: myName,
-                userId: myUserId
-            });
+            try {
+                hostConnection.send({
+                    type: 'join',
+                    name: myName,
+                    userId: myUserId
+                });
+                document.getElementById('join-status').textContent = 'Join sent! Waiting for game...';
+                console.log('Join message sent successfully');
+            } catch (err) {
+                console.error('Failed to send join:', err);
+                document.getElementById('join-status').textContent = 'Error sending join: ' + err.message;
+            }
 
             if (onReady) onReady(id);
         });
