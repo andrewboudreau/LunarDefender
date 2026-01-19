@@ -940,6 +940,8 @@ function exitMiningMode(success, upgrade) {
 function checkNearbyRocks(ship) {
     if (!ship || ship.state !== PlayerState.FLYING) {
         ship.nearRock = null;
+        ship.miningCountdown = 0;
+        ship.miningReady = false;
         return;
     }
 
@@ -955,6 +957,30 @@ function checkNearbyRocks(ship) {
                 nearest = rock;
             }
         }
+    }
+
+    // Check if we're near the same rock and matching velocity
+    if (nearest) {
+        const velDiffX = Math.abs(ship.vx - nearest.vx);
+        const velDiffY = Math.abs(ship.vy - nearest.vy);
+        const velocityMatched = velDiffX < 1.5 && velDiffY < 1.5;
+
+        if (ship.nearRock === nearest && velocityMatched) {
+            // Continue countdown
+            ship.miningCountdown = (ship.miningCountdown || 0) + 1;
+            // 2 seconds at 60fps = 120 frames
+            if (ship.miningCountdown >= 120) {
+                ship.miningReady = true;
+            }
+        } else {
+            // Different rock or velocity not matched - reset
+            ship.miningCountdown = 0;
+            ship.miningReady = false;
+        }
+    } else {
+        // Not near any rock - reset
+        ship.miningCountdown = 0;
+        ship.miningReady = false;
     }
 
     ship.nearRock = nearest;
@@ -1447,7 +1473,7 @@ function update() {
 
             // Check for mining trigger
             checkNearbyRocks(myShip);
-            if (keys.mine && myShip.nearRock) {
+            if (keys.mine && myShip.nearRock && myShip.miningReady) {
                 enterMiningMode(myShip.nearRock.id);
                 return;
             }
@@ -1497,7 +1523,7 @@ function update() {
         // Client: check for mining
         if (myShip && myShip.state === PlayerState.FLYING) {
             checkNearbyRocks(myShip);
-            if (keys.mine && myShip.nearRock) {
+            if (keys.mine && myShip.nearRock && myShip.miningReady) {
                 enterMiningMode(myShip.nearRock.id);
                 return;
             }
@@ -1561,13 +1587,39 @@ function render() {
         drawRock(rock);
         // Highlight if we're near and can mine
         if (myShip && myShip.nearRock === rock) {
-            ctx.strokeStyle = '#4f4';
+            const progress = (myShip.miningCountdown || 0) / 120; // 0 to 1
+            const ready = myShip.miningReady;
+
+            // Background circle (dashed, dim)
+            ctx.strokeStyle = ready ? '#4f4' : '#444';
             ctx.lineWidth = 2;
             ctx.setLineDash([5, 5]);
             ctx.beginPath();
             ctx.arc(rock.x, rock.y, rock.radius + 10, 0, Math.PI * 2);
             ctx.stroke();
             ctx.setLineDash([]);
+
+            // Progress arc (solid, bright)
+            if (progress > 0) {
+                ctx.strokeStyle = ready ? '#4f4' : '#fa0';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                // Start from top (-PI/2), go clockwise
+                ctx.arc(rock.x, rock.y, rock.radius + 10, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // Glow effect when ready
+            if (ready) {
+                ctx.strokeStyle = '#4f4';
+                ctx.lineWidth = 2;
+                ctx.shadowColor = '#4f4';
+                ctx.shadowBlur = 15;
+                ctx.beginPath();
+                ctx.arc(rock.x, rock.y, rock.radius + 10, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
         }
     });
 
@@ -1583,10 +1635,22 @@ function render() {
 
     // Show mining prompt if near a rock
     if (myShip && myShip.nearRock) {
-        ctx.fillStyle = '#4f4';
-        ctx.font = '16px "Courier New", monospace';
+        ctx.font = '14px "Courier New", monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('Press E to mine', myShip.nearRock.x, myShip.nearRock.y - myShip.nearRock.radius - 20);
+
+        if (myShip.miningReady) {
+            ctx.fillStyle = '#4f4';
+            ctx.fillText('Press E to mine', myShip.nearRock.x, myShip.nearRock.y - myShip.nearRock.radius - 25);
+        } else {
+            const progress = (myShip.miningCountdown || 0) / 120;
+            if (progress > 0) {
+                ctx.fillStyle = '#fa0';
+                ctx.fillText('Matching velocity...', myShip.nearRock.x, myShip.nearRock.y - myShip.nearRock.radius - 25);
+            } else {
+                ctx.fillStyle = '#888';
+                ctx.fillText('Match speed to dock', myShip.nearRock.x, myShip.nearRock.y - myShip.nearRock.radius - 25);
+            }
+        }
         ctx.textAlign = 'left';
     }
 
