@@ -7,6 +7,7 @@ import { ADJECTIVES, NOUNS } from './config.js';
 import { playClick } from './audio.js';
 import { loadLifetimeStats, saveLifetimeStats } from './stats.js';
 import { shareGame } from './network.js';
+import { getAvailableRooms } from './lobby.js';
 
 // ===========================================
 // USER IDENTITY
@@ -149,6 +150,48 @@ export function updateMenuStats(lifetimeStats) {
 }
 
 // ===========================================
+// LOBBY
+// ===========================================
+
+export async function refreshLobby(onRoomClick) {
+    const lobbyList = document.getElementById('lobby-list');
+    if (!lobbyList) return;
+
+    lobbyList.innerHTML = '<div class="lobby-loading">Loading...</div>';
+
+    try {
+        const rooms = await getAvailableRooms();
+
+        if (rooms.length === 0) {
+            lobbyList.innerHTML = '<div class="lobby-empty">No games available</div>';
+            return;
+        }
+
+        lobbyList.innerHTML = rooms.map(room => `
+            <div class="lobby-room" data-code="${room.code}">
+                <div class="lobby-room-info">
+                    <div class="lobby-room-host">${room.host}</div>
+                    <div class="lobby-room-code">${room.code}</div>
+                </div>
+                <div class="lobby-room-players">${room.players} player${room.players > 1 ? 's' : ''}</div>
+            </div>
+        `).join('');
+
+        // Add click handlers
+        lobbyList.querySelectorAll('.lobby-room').forEach(el => {
+            el.addEventListener('click', () => {
+                playClick();
+                const code = el.dataset.code;
+                if (onRoomClick) onRoomClick(code);
+            });
+        });
+    } catch (err) {
+        console.warn('Failed to load lobby:', err);
+        lobbyList.innerHTML = '<div class="lobby-empty">Failed to load</div>';
+    }
+}
+
+// ===========================================
 // MENU SETUP
 // ===========================================
 
@@ -210,6 +253,21 @@ export function setupMenu(callbacks) {
 
         document.getElementById('main-menu').classList.add('hidden');
         document.getElementById('join-menu').classList.remove('hidden');
+
+        // Load lobby when join menu opens
+        refreshLobby((code) => {
+            document.getElementById('room-input').value = code;
+            onConnect(code);
+        });
+    });
+
+    // Refresh lobby button
+    document.getElementById('refresh-lobby-btn').addEventListener('click', () => {
+        playClick();
+        refreshLobby((code) => {
+            document.getElementById('room-input').value = code;
+            onConnect(code);
+        });
     });
 
     document.getElementById('connect-btn').addEventListener('click', () => {

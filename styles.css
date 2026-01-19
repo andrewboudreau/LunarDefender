@@ -334,7 +334,68 @@ canvas {
     background: rgba(68, 255, 68, 0.6);
 }
 
-/* 7. Utility Classes */
+/* 7. Lobby */
+#lobby-section {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #333;
+}
+
+#lobby-list {
+    max-height: 200px;
+    overflow-y: auto;
+    margin: 10px 0;
+}
+
+.lobby-room {
+    background: rgba(68, 170, 255, 0.1);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-sm);
+    padding: 10px 15px;
+    margin: 8px 0;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.lobby-room:hover {
+    background: rgba(68, 170, 255, 0.3);
+    border-color: #6cf;
+}
+
+.lobby-room-info {
+    text-align: left;
+}
+
+.lobby-room-host {
+    color: var(--color-primary);
+    font-weight: bold;
+}
+
+.lobby-room-code {
+    color: var(--color-text-dim);
+    font-size: 0.85em;
+}
+
+.lobby-room-players {
+    color: var(--color-success);
+    font-size: 0.9em;
+}
+
+.lobby-empty {
+    color: var(--color-text-dim);
+    font-style: italic;
+    padding: 20px;
+}
+
+.lobby-loading {
+    color: var(--color-text-dim);
+    padding: 20px;
+}
+
+/* 8. Utility Classes */
 .hidden {
     display: none !important;
 }

@@ -6,6 +6,7 @@ import { CONFIG, PlayerState } from './config.js';
 import { createShip, randomColor } from './entities/ship.js';
 import { createBullet } from './entities/projectiles.js';
 import { GameEvents, createEvent, logEvent } from './stats.js';
+import { registerRoom, unregisterRoom, startRoomUpdates, stopRoomUpdates } from './lobby.js';
 
 let peer = null;
 let connections = []; // For host: all client connections
@@ -100,17 +101,30 @@ export async function shareGame(roomCode) {
 // HOST SETUP
 // ===========================================
 
+// Track host info for lobby updates
+let hostRoomCode = null;
+let hostName = null;
+
 export function setupHost(myName, myUserId, ships, onReady) {
     const roomCode = generateRoomCode();
+    hostRoomCode = roomCode;
+    hostName = myName;
     document.getElementById('room-code').textContent = roomCode;
 
     peer = new Peer(roomCode, {
         debug: 1
     });
 
-    peer.on('open', (id) => {
+    peer.on('open', async (id) => {
         console.log('Host peer opened with ID:', id);
         document.getElementById('status').textContent = 'Room ready! Tap INVITE to share.';
+
+        // Register room in public lobby
+        await registerRoom(roomCode, myName, 1);
+
+        // Start periodic updates to keep room alive
+        startRoomUpdates(roomCode, () => hostName, () => Object.keys(ships).length || 1);
+
         if (onReady) onReady(id, roomCode);
     });
 
@@ -138,6 +152,24 @@ export function setupHost(myName, myUserId, ships, onReady) {
     peer.on('error', (err) => {
         console.error('Peer error:', err);
         document.getElementById('status').textContent = 'Error: ' + err.type;
+    });
+
+    peer.on('close', () => {
+        // Unregister from lobby when host closes
+        stopRoomUpdates();
+        if (hostRoomCode) {
+            unregisterRoom(hostRoomCode);
+            hostRoomCode = null;
+        }
+    });
+
+    // Also unregister on page unload
+    window.addEventListener('beforeunload', () => {
+        stopRoomUpdates();
+        if (hostRoomCode) {
+            // Use sendBeacon for reliable unload
+            unregisterRoom(hostRoomCode);
+        }
     });
 
     return roomCode;
