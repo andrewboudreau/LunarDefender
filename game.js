@@ -230,6 +230,9 @@ function broadcastEvent(event) {
 
     logEvent(event);
 
+    // Handle event locally for the host
+    handleGameEvent(event);
+
     // Send to all clients
     connections.forEach(conn => {
         if (conn.open) {
@@ -239,7 +242,11 @@ function broadcastEvent(event) {
 }
 
 function handleGameEvent(event) {
-    logEvent(event);
+    // Note: logEvent is called by broadcastEvent, so we don't need to call it again for host
+    // For clients receiving events, we log them here
+    if (!isHost) {
+        logEvent(event);
+    }
 
     // Update stats based on event
     switch (event.type) {
