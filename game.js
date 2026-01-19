@@ -20,6 +20,7 @@ const CONFIG = {
 // ============== GAME STATE ==============
 let canvas, ctx;
 let isHost = false;
+let isBot = false;
 let gameRunning = false;
 let myId = null;
 let peer = null;
@@ -228,6 +229,49 @@ function drawBullet(bullet) {
     ctx.beginPath();
     ctx.arc(bullet.x, bullet.y, 3, 0, Math.PI * 2);
     ctx.fill();
+}
+
+// ============== BOT AI ==============
+function getBotInput(ship) {
+    if (!ship || rocks.length === 0) {
+        return { left: false, right: false, up: false, space: false };
+    }
+
+    // Find nearest rock
+    let nearestRock = null;
+    let nearestDist = Infinity;
+    for (const rock of rocks) {
+        const d = distance(ship, rock);
+        if (d < nearestDist) {
+            nearestDist = d;
+            nearestRock = rock;
+        }
+    }
+
+    if (!nearestRock) {
+        return { left: false, right: false, up: false, space: false };
+    }
+
+    // Calculate angle to rock
+    const targetAngle = Math.atan2(
+        nearestRock.y - ship.y,
+        nearestRock.x - ship.x
+    );
+
+    // Normalize angles
+    let angleDiff = targetAngle - ship.angle;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+    // Bot inputs
+    const input = {
+        left: angleDiff < -0.1,
+        right: angleDiff > 0.1,
+        up: nearestDist > 150 && Math.abs(angleDiff) < 0.5, // Thrust toward if far and aimed
+        space: Math.abs(angleDiff) < 0.2 && nearestDist < 400 // Shoot if aimed at rock
+    };
+
+    return input;
 }
 
 // ============== COLLISION ==============
@@ -511,13 +555,14 @@ function gameLoop() {
 function update() {
     if (isHost) {
         // Host updates all game state
-        // Update host's own ship
+        // Update host's own ship (or bot)
         if (ships[myId]) {
-            if (keys.space && Date.now() - lastShot > 200) {
+            const input = isBot ? getBotInput(ships[myId]) : keys;
+            if (input.space && Date.now() - lastShot > 200) {
                 bullets.push(createBullet(ships[myId]));
                 lastShot = Date.now();
             }
-            updateShip(ships[myId], keys);
+            updateShip(ships[myId], input);
         }
 
         // Update client ships based on their inputs
@@ -682,6 +727,27 @@ function init() {
 
     setupMenu();
     setupInput();
+
+    // Check for bot mode via URL parameter
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('bot') === 'true') {
+        isBot = true;
+        console.log('Bot mode enabled - auto-hosting...');
+
+        // Auto-start as host with bot
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('host-menu').classList.remove('hidden');
+        setupHost();
+
+        // Wait for peer connection then auto-start game
+        const checkAndStart = setInterval(() => {
+            if (myId) {
+                clearInterval(checkAndStart);
+                document.getElementById('status').textContent = 'Bot hosting! Join with the code above.';
+                startGame();
+            }
+        }, 500);
+    }
 }
 
 // Start when page loads

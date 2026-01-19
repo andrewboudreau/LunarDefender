@@ -15,3 +15,13 @@ A 2D co-op asteroid-style game with WebRTC multiplayer.
 **Desktop:** Arrow keys or WASD to rotate/thrust, SPACE to shoot
 
 **Mobile:** On-screen touch buttons
+
+## Bot Mode
+
+Run a bot that auto-hosts and plays:
+
+```
+https://andrewboudreau.github.io/LunarDefender/?bot=true
+```
+
+The bot will fly around shooting asteroids. Other players can join using the displayed room code. You can run this in a browser tab on any server to have a persistent game available.
