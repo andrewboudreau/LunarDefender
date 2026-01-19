@@ -497,6 +497,12 @@ export function update() {
         Object.values(ships).forEach(ship => {
             if (ship.id !== myId && ship.input && ship.state === PlayerState.FLYING) {
                 updateShip(ship, ship.input);
+
+                // Handle client alt-fire
+                if (ship.input.altFire) {
+                    fireSecondary(ship);
+                    ship.input.altFire = false; // Prevent repeated firing
+                }
             }
         });
 
@@ -554,7 +560,9 @@ export function update() {
         }
 
         // Client sends input to host
-        lastShot = sendInputToHost(keys, lastShot);
+        const result = sendInputToHost(keys, lastShot, lastAltFire);
+        lastShot = result.lastShot;
+        lastAltFire = result.lastAltFire;
 
         // Client-side thrust particles
         if (keys.up && myShip) {

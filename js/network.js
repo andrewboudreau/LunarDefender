@@ -7,6 +7,7 @@ import { createShip, randomColor } from './entities/ship.js';
 import { createBullet } from './entities/projectiles.js';
 import { GameEvents, createEvent, logEvent } from './stats.js';
 import { registerRoom, unregisterRoom, startRoomUpdates, stopRoomUpdates } from './lobby.js';
+import { getGameState } from './game.js';
 
 let peer = null;
 let connections = []; // For host: all client connections
@@ -259,13 +260,14 @@ function handleClientMessage(clientId, data, ships) {
         // Send current state to new player
         const conn = connections.find(c => c.peer === clientId);
         if (conn && conn.open) {
+            const gameState = getGameState();
             conn.send({
                 type: 'init',
                 playerId: clientId,
                 ships: ships,
                 rocks: rocksRef || [],
                 bullets: bulletsRef || [],
-                gameRunning: false
+                gameRunning: gameState.gameRunning
             });
         }
 
@@ -375,21 +377,22 @@ export function broadcastGameStart(ships, rocks, bullets) {
     });
 }
 
-export function sendInputToHost(keys, lastShot) {
+export function sendInputToHost(keys, lastShot, lastAltFire) {
     if (hostConnection && hostConnection.open) {
         hostConnection.send({
             type: 'input',
             left: keys.left,
             right: keys.right,
             up: keys.up,
-            shooting: keys.space && Date.now() - lastShot > 200
+            shooting: keys.space && Date.now() - lastShot > 200,
+            altFire: keys.altFire && Date.now() - lastAltFire > 300
         });
 
-        if (keys.space && Date.now() - lastShot > 200) {
-            return Date.now();
-        }
+        const newLastShot = (keys.space && Date.now() - lastShot > 200) ? Date.now() : lastShot;
+        const newLastAltFire = (keys.altFire && Date.now() - lastAltFire > 300) ? Date.now() : lastAltFire;
+        return { lastShot: newLastShot, lastAltFire: newLastAltFire };
     }
-    return lastShot;
+    return { lastShot, lastAltFire };
 }
 
 export function updatePlayerCount(ships) {
