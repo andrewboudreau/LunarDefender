@@ -6,17 +6,76 @@ const CONFIG = {
     width: 1200,
     height: 800,
     shipSize: 20,
-    shipThrust: 0.08,       // Reduced from 0.15
-    shipMaxSpeed: 6,        // New: cap max velocity
-    shipFriction: 0.995,    // Slightly less friction (slows more gradually)
-    shipRotSpeed: 0.05,     // Reduced from 0.08
-    bulletSpeed: 5,         // Reduced from 8
-    bulletLife: 80,         // Increased from 60 (bullets last longer at slower speed)
+    shipThrust: 0.08,
+    shipMaxSpeed: 6,
+    shipFriction: 0.995,
+    shipRotSpeed: 0.05,
+    bulletSpeed: 5,
+    bulletLife: 80,
     rockSizes: [40, 25, 15],
-    rockSpeed: 1.2,         // Reduced from 2
+    rockSpeed: 1.2,
     initialRocks: 5,
-    networkTickRate: 50,    // ms between network updates
-    fuelPerThrust: 0.1,     // Fuel units consumed per frame of thrust
+    networkTickRate: 50,
+    fuelPerThrust: 0.1,
+    miningDistance: 60,     // How close to rock to start mining
+};
+
+// ============== PLAYER STATES ==============
+const PlayerState = {
+    FLYING: 'flying',
+    MINING: 'mining'        // In lunar lander mini-game
+};
+
+// ============== UPGRADES ==============
+const UPGRADES = {
+    SPREAD_SHOT: {
+        id: 'spread_shot',
+        name: 'Spread Shot',
+        desc: 'Fire 3 bullets in a cone',
+        color: '#f4a'
+    },
+    RAPID_FIRE: {
+        id: 'rapid_fire',
+        name: 'Rapid Fire',
+        desc: 'Shoot twice as fast',
+        color: '#fa4'
+    },
+    EXPLOSIVES: {
+        id: 'explosives',
+        name: 'Explosive Rounds',
+        desc: 'Bullets explode on impact',
+        color: '#f44'
+    },
+    SHIELD: {
+        id: 'shield',
+        name: 'Energy Shield',
+        desc: 'Protect from one crash',
+        color: '#4af'
+    },
+    BIG_BULLETS: {
+        id: 'big_bullets',
+        name: 'Heavy Rounds',
+        desc: 'Larger, more powerful shots',
+        color: '#a4f'
+    }
+};
+
+function getRandomUpgrade() {
+    const keys = Object.keys(UPGRADES);
+    return UPGRADES[keys[Math.floor(Math.random() * keys.length)]];
+}
+
+// ============== LUNAR LANDER CONFIG ==============
+const LANDER_CONFIG = {
+    gravity: 0.015,
+    thrust: 0.04,
+    rotSpeed: 0.04,
+    maxFuel: 100,
+    fuelUsage: 0.3,
+    maxLandingSpeed: 1.5,
+    maxLandingAngle: 0.4,   // radians from vertical
+    terrainSegments: 40,
+    landingPadCount: 3
 };
 
 // ============== USER IDENTITY ==============
@@ -142,7 +201,9 @@ const GameEvents = {
     THRUST_START: 'thrust_start',
     THRUST_STOP: 'thrust_stop',
     PLAYER_JOINED: 'player_joined',
-    PLAYER_LEFT: 'player_left'
+    PLAYER_LEFT: 'player_left',
+    PLAYER_MINING: 'player_mining',
+    PLAYER_UPGRADE: 'player_upgrade'
 };
 
 let eventLog = []; // Host maintains event log
@@ -272,7 +333,8 @@ let keys = {
     left: false,
     right: false,
     up: false,
-    space: false
+    space: false,
+    mine: false    // E key for mining
 };
 let lastShot = 0;
 
@@ -314,7 +376,11 @@ function createShip(id, x, y, color, name) {
         color: color || randomColor(),
         thrusting: false,
         name: name || 'Unknown',
-        stats: createSessionStats()
+        stats: createSessionStats(),
+        state: PlayerState.FLYING,
+        upgrades: [],           // Array of upgrade IDs
+        nearRock: null,         // Rock we're close to (can mine)
+        miningRockId: null      // Rock we're currently mining
     };
 }
 
@@ -478,8 +544,348 @@ function updateBullet(bullet) {
 function drawBullet(bullet) {
     ctx.fillStyle = bullet.color;
     ctx.beginPath();
-    ctx.arc(bullet.x, bullet.y, 3, 0, Math.PI * 2);
+    ctx.arc(bullet.x, bullet.y, bullet.radius || 3, 0, Math.PI * 2);
     ctx.fill();
+}
+
+// ============== LUNAR LANDER MINI-GAME ==============
+let landerState = null;  // Active lander game state
+
+function createLanderState(rockId) {
+    // Generate terrain
+    const terrain = generateTerrain();
+
+    return {
+        rockId: rockId,
+        x: CONFIG.width / 2,
+        y: 80,
+        vx: 0,
+        vy: 0,
+        angle: -Math.PI / 2,  // Pointing up
+        fuel: LANDER_CONFIG.maxFuel,
+        terrain: terrain.points,
+        landingPads: terrain.pads,
+        status: 'active',     // 'active', 'landed', 'crashed'
+        reward: null,
+        thrustOn: false
+    };
+}
+
+function generateTerrain() {
+    const points = [];
+    const pads = [];
+    const segmentWidth = CONFIG.width / LANDER_CONFIG.terrainSegments;
+    let y = CONFIG.height - 100;
+
+    // Decide which segments have landing pads
+    const padSegments = [];
+    while (padSegments.length < LANDER_CONFIG.landingPadCount) {
+        const seg = 3 + Math.floor(Math.random() * (LANDER_CONFIG.terrainSegments - 6));
+        if (!padSegments.includes(seg) && !padSegments.includes(seg - 1) && !padSegments.includes(seg + 1)) {
+            padSegments.push(seg);
+        }
+    }
+
+    for (let i = 0; i <= LANDER_CONFIG.terrainSegments; i++) {
+        const x = i * segmentWidth;
+
+        if (padSegments.includes(i)) {
+            // Landing pad - flat section
+            const padY = y;
+            points.push({ x, y: padY });
+            points.push({ x: x + segmentWidth, y: padY });
+            pads.push({ x, y: padY, width: segmentWidth });
+            i++; // Skip next segment (pad takes 2)
+        } else {
+            // Jagged terrain
+            y += (Math.random() - 0.4) * 40;
+            y = Math.max(CONFIG.height - 200, Math.min(CONFIG.height - 50, y));
+            points.push({ x, y });
+        }
+    }
+
+    return { points, pads };
+}
+
+function updateLander() {
+    if (!landerState || landerState.status !== 'active') return;
+
+    const L = landerState;
+
+    // Gravity
+    L.vy += LANDER_CONFIG.gravity;
+
+    // Rotation
+    if (keys.left) L.angle -= LANDER_CONFIG.rotSpeed;
+    if (keys.right) L.angle += LANDER_CONFIG.rotSpeed;
+
+    // Thrust
+    L.thrustOn = keys.up && L.fuel > 0;
+    if (L.thrustOn) {
+        L.vx += Math.cos(L.angle) * LANDER_CONFIG.thrust;
+        L.vy += Math.sin(L.angle) * LANDER_CONFIG.thrust;
+        L.fuel -= LANDER_CONFIG.fuelUsage;
+    }
+
+    // Move
+    L.x += L.vx;
+    L.y += L.vy;
+
+    // Screen bounds (wrap horizontally)
+    if (L.x < 0) L.x = CONFIG.width;
+    if (L.x > CONFIG.width) L.x = 0;
+
+    // Check terrain collision
+    const terrainY = getTerrainHeight(L.x, L.terrain);
+    if (L.y >= terrainY - 10) {
+        const speed = Math.sqrt(L.vx * L.vx + L.vy * L.vy);
+        const angleFromVertical = Math.abs(L.angle + Math.PI / 2);
+        const onPad = isOnLandingPad(L.x, L.landingPads);
+
+        if (onPad && speed < LANDER_CONFIG.maxLandingSpeed && angleFromVertical < LANDER_CONFIG.maxLandingAngle) {
+            // SUCCESS!
+            L.status = 'landed';
+            L.reward = getRandomUpgrade();
+            L.y = terrainY - 10;
+            L.vx = 0;
+            L.vy = 0;
+        } else {
+            // CRASH!
+            L.status = 'crashed';
+        }
+    }
+
+    // Out of bounds top - just cap it
+    if (L.y < 20) {
+        L.y = 20;
+        L.vy = Math.max(0, L.vy);
+    }
+}
+
+function getTerrainHeight(x, terrain) {
+    // Find the two terrain points we're between
+    for (let i = 0; i < terrain.length - 1; i++) {
+        if (x >= terrain[i].x && x <= terrain[i + 1].x) {
+            // Linear interpolation
+            const t = (x - terrain[i].x) / (terrain[i + 1].x - terrain[i].x);
+            return terrain[i].y + t * (terrain[i + 1].y - terrain[i].y);
+        }
+    }
+    return CONFIG.height - 50;
+}
+
+function isOnLandingPad(x, pads) {
+    for (const pad of pads) {
+        if (x >= pad.x && x <= pad.x + pad.width) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function renderLander() {
+    if (!landerState) return;
+
+    const L = landerState;
+
+    // Background
+    ctx.fillStyle = '#050510';
+    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+
+    // Stars
+    ctx.fillStyle = '#333';
+    for (let i = 0; i < 80; i++) {
+        const sx = (i * 137 + 50) % CONFIG.width;
+        const sy = (i * 251 + 30) % (CONFIG.height - 200);
+        ctx.fillRect(sx, sy, 1, 1);
+    }
+
+    // Terrain
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.moveTo(0, CONFIG.height);
+    L.terrain.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineTo(CONFIG.width, CONFIG.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // Landing pads (highlighted)
+    ctx.fillStyle = '#4f4';
+    ctx.shadowColor = '#4f4';
+    ctx.shadowBlur = 10;
+    L.landingPads.forEach(pad => {
+        ctx.fillRect(pad.x, pad.y - 4, pad.width, 4);
+    });
+    ctx.shadowBlur = 0;
+
+    // Lander ship
+    ctx.save();
+    ctx.translate(L.x, L.y);
+    ctx.rotate(L.angle);
+
+    // Ship body
+    ctx.strokeStyle = L.status === 'crashed' ? '#f44' : '#4af';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(15, 0);
+    ctx.lineTo(-10, -10);
+    ctx.lineTo(-5, 0);
+    ctx.lineTo(-10, 10);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Legs
+    ctx.beginPath();
+    ctx.moveTo(-8, -8);
+    ctx.lineTo(-12, -15);
+    ctx.moveTo(-8, 8);
+    ctx.lineTo(-12, 15);
+    ctx.stroke();
+
+    // Thrust flame
+    if (L.thrustOn && L.status === 'active') {
+        ctx.strokeStyle = '#f80';
+        ctx.beginPath();
+        ctx.moveTo(-5, -5);
+        ctx.lineTo(-20 - Math.random() * 10, 0);
+        ctx.lineTo(-5, 5);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+
+    // HUD
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px "Courier New", monospace';
+
+    // Fuel bar
+    ctx.fillText('FUEL', 20, 30);
+    ctx.strokeStyle = '#4af';
+    ctx.strokeRect(70, 15, 100, 20);
+    ctx.fillStyle = L.fuel > 20 ? '#4af' : '#f44';
+    ctx.fillRect(72, 17, (L.fuel / LANDER_CONFIG.maxFuel) * 96, 16);
+
+    // Velocity
+    const speed = Math.sqrt(L.vx * L.vx + L.vy * L.vy);
+    ctx.fillStyle = speed < LANDER_CONFIG.maxLandingSpeed ? '#4f4' : '#f44';
+    ctx.fillText(`VEL: ${speed.toFixed(1)}`, 200, 30);
+
+    // Altitude
+    const alt = Math.max(0, getTerrainHeight(L.x, L.terrain) - L.y - 10);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`ALT: ${Math.floor(alt)}`, 320, 30);
+
+    // Angle indicator
+    const angleDeg = ((L.angle + Math.PI / 2) * 180 / Math.PI).toFixed(0);
+    const angleOk = Math.abs(L.angle + Math.PI / 2) < LANDER_CONFIG.maxLandingAngle;
+    ctx.fillStyle = angleOk ? '#4f4' : '#f44';
+    ctx.fillText(`ANG: ${angleDeg}°`, 440, 30);
+
+    // Status messages
+    if (L.status === 'landed') {
+        ctx.fillStyle = '#4f4';
+        ctx.font = '32px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('LANDED!', CONFIG.width / 2, CONFIG.height / 2 - 40);
+        ctx.font = '20px "Courier New", monospace';
+        ctx.fillStyle = L.reward.color;
+        ctx.fillText(`+ ${L.reward.name}`, CONFIG.width / 2, CONFIG.height / 2);
+        ctx.fillStyle = '#888';
+        ctx.font = '16px "Courier New", monospace';
+        ctx.fillText('Press SPACE to continue', CONFIG.width / 2, CONFIG.height / 2 + 40);
+        ctx.textAlign = 'left';
+    } else if (L.status === 'crashed') {
+        ctx.fillStyle = '#f44';
+        ctx.font = '32px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('CRASHED!', CONFIG.width / 2, CONFIG.height / 2 - 20);
+        ctx.fillStyle = '#888';
+        ctx.font = '16px "Courier New", monospace';
+        ctx.fillText('Press SPACE to continue', CONFIG.width / 2, CONFIG.height / 2 + 20);
+        ctx.textAlign = 'left';
+    } else {
+        // Instructions
+        ctx.fillStyle = '#666';
+        ctx.font = '14px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Land gently on green pads | ← → rotate | ↑ thrust', CONFIG.width / 2, CONFIG.height - 20);
+        ctx.textAlign = 'left';
+    }
+}
+
+function enterMiningMode(rockId) {
+    const myShip = ships[myId];
+    if (!myShip || myShip.state === PlayerState.MINING) return;
+
+    myShip.state = PlayerState.MINING;
+    myShip.miningRockId = rockId;
+
+    // Create lunar lander state
+    landerState = createLanderState(rockId);
+
+    // Broadcast state change
+    if (isHost) {
+        broadcastEvent(createEvent(GameEvents.PLAYER_MINING, { playerId: myId, rockId }));
+    } else if (hostConnection && hostConnection.open) {
+        hostConnection.send({ type: 'enter_mining', rockId });
+    }
+
+    console.log('Entered mining mode for rock:', rockId);
+}
+
+function exitMiningMode(success, upgrade) {
+    const myShip = ships[myId];
+    if (!myShip) return;
+
+    myShip.state = PlayerState.FLYING;
+
+    if (success && upgrade) {
+        // Add upgrade if we don't already have it
+        if (!myShip.upgrades.includes(upgrade.id)) {
+            myShip.upgrades.push(upgrade.id);
+            console.log('Got upgrade:', upgrade.name);
+        }
+    }
+
+    myShip.miningRockId = null;
+    landerState = null;
+
+    // Broadcast state change
+    if (isHost) {
+        broadcastEvent(createEvent(GameEvents.PLAYER_LEFT, {
+            playerId: myId,
+            upgrade: success ? upgrade?.id : null
+        }));
+    } else if (hostConnection && hostConnection.open) {
+        hostConnection.send({
+            type: 'exit_mining',
+            success,
+            upgrade: success ? upgrade?.id : null
+        });
+    }
+}
+
+function checkNearbyRocks(ship) {
+    if (!ship || ship.state !== PlayerState.FLYING) {
+        ship.nearRock = null;
+        return;
+    }
+
+    // Only large rocks can be mined
+    let nearest = null;
+    let nearestDist = CONFIG.miningDistance;
+
+    for (const rock of rocks) {
+        if (rock.sizeIndex === 0) {  // Only large rocks
+            const d = distance(ship, rock);
+            if (d < nearestDist) {
+                nearestDist = d;
+                nearest = rock;
+            }
+        }
+    }
+
+    ship.nearRock = nearest;
 }
 
 // ============== BOT AI ==============
@@ -532,9 +938,11 @@ function checkCollisions() {
     // Bullets vs Rocks
     for (let i = bullets.length - 1; i >= 0; i--) {
         const bullet = bullets[i];
+        const bulletRadius = bullet.radius || 3;
+
         for (let j = rocks.length - 1; j >= 0; j--) {
             const rock = rocks[j];
-            if (distance(bullet, rock) < rock.radius) {
+            if (distance(bullet, rock) < rock.radius + bulletRadius) {
                 // Emit rock destroyed event
                 broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
                     playerId: bullet.ownerId,
@@ -542,17 +950,40 @@ function checkCollisions() {
                     rockSize: rock.sizeIndex
                 }));
 
+                // Check for explosive rounds
+                const shooter = ships[bullet.ownerId];
+                const isExplosive = shooter?.upgrades?.includes('explosives');
+
                 // Remove bullet
                 bullets.splice(i, 1);
 
                 // Split or destroy rock
                 if (rock.sizeIndex < CONFIG.rockSizes.length - 1) {
-                    // Split into smaller rocks
-                    for (let k = 0; k < 2; k++) {
-                        rocks.push(createRock(rock.x, rock.y, rock.sizeIndex + 1));
+                    // Split into smaller rocks (unless explosive - then destroy completely)
+                    if (!isExplosive) {
+                        for (let k = 0; k < 2; k++) {
+                            rocks.push(createRock(rock.x, rock.y, rock.sizeIndex + 1));
+                        }
                     }
                 }
+
+                const rockX = rock.x;
+                const rockY = rock.y;
                 rocks.splice(j, 1);
+
+                // Explosive chain reaction - damage nearby rocks
+                if (isExplosive) {
+                    for (let k = rocks.length - 1; k >= 0; k--) {
+                        if (distance({ x: rockX, y: rockY }, rocks[k]) < 80) {
+                            broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
+                                playerId: bullet.ownerId,
+                                rockId: rocks[k].id,
+                                rockSize: rocks[k].sizeIndex
+                            }));
+                            rocks.splice(k, 1);
+                        }
+                    }
+                }
 
                 // Respawn rocks if all destroyed
                 if (rocks.length === 0) {
@@ -922,15 +1353,32 @@ function gameLoop() {
 }
 
 function update() {
+    const myShip = ships[myId];
+
+    // Check if we're in mining mode (lunar lander)
+    if (myShip && myShip.state === PlayerState.MINING) {
+        updateLander();
+        return;
+    }
+
     if (isHost) {
         // Host updates all game state
         // Update host's own ship (or bot)
-        if (ships[myId]) {
-            const input = isBot ? getBotInput(ships[myId]) : keys;
-            if (input.space && Date.now() - lastShot > 200) {
-                bullets.push(createBullet(ships[myId]));
+        if (myShip && myShip.state === PlayerState.FLYING) {
+            const input = isBot ? getBotInput(myShip) : keys;
+
+            // Check for mining trigger
+            checkNearbyRocks(myShip);
+            if (keys.mine && myShip.nearRock) {
+                enterMiningMode(myShip.nearRock.id);
+                return;
+            }
+
+            // Shooting with upgrades
+            const fireRate = myShip.upgrades.includes('rapid_fire') ? 100 : 200;
+            if (input.space && Date.now() - lastShot > fireRate) {
+                fireBullets(myShip);
                 lastShot = Date.now();
-                broadcastEvent(createEvent(GameEvents.SHOT_FIRED, { playerId: myId }));
             }
 
             // Track host's thrust
@@ -938,18 +1386,18 @@ function update() {
                 thrustStartTime[myId] = Date.now();
             } else if (!input.up && thrustStartTime[myId]) {
                 const duration = (Date.now() - thrustStartTime[myId]) / 1000;
-                if (ships[myId]?.stats) {
-                    ships[myId].stats.fuelUsed += duration * CONFIG.fuelPerThrust * 60;
+                if (myShip.stats) {
+                    myShip.stats.fuelUsed += duration * CONFIG.fuelPerThrust * 60;
                 }
                 delete thrustStartTime[myId];
             }
 
-            updateShip(ships[myId], input);
+            updateShip(myShip, input);
         }
 
         // Update client ships based on their inputs
         Object.values(ships).forEach(ship => {
-            if (ship.id !== myId && ship.input) {
+            if (ship.id !== myId && ship.input && ship.state === PlayerState.FLYING) {
                 updateShip(ship, ship.input);
             }
         });
@@ -968,17 +1416,56 @@ function update() {
         // Check collisions
         checkCollisions();
     } else {
+        // Client: check for mining
+        if (myShip && myShip.state === PlayerState.FLYING) {
+            checkNearbyRocks(myShip);
+            if (keys.mine && myShip.nearRock) {
+                enterMiningMode(myShip.nearRock.id);
+                return;
+            }
+        }
+
         // Client sends input to host
         sendInputToHost();
-
-        // Client-side prediction (optional, for smoother feel)
-        // We'll just render the state from host for simplicity
     }
 
     updateHUD();
 }
 
+// Fire bullets with upgrade support
+function fireBullets(ship) {
+    if (ship.upgrades.includes('spread_shot')) {
+        // Fire 3 bullets in a cone
+        for (let i = -1; i <= 1; i++) {
+            const spreadAngle = ship.angle + i * 0.2;
+            const bullet = createBullet(ship);
+            bullet.vx = Math.cos(spreadAngle) * CONFIG.bulletSpeed + ship.vx;
+            bullet.vy = Math.sin(spreadAngle) * CONFIG.bulletSpeed + ship.vy;
+            if (ship.upgrades.includes('big_bullets')) {
+                bullet.radius = 5;
+            }
+            bullets.push(bullet);
+        }
+        broadcastEvent(createEvent(GameEvents.SHOT_FIRED, { playerId: ship.id }));
+    } else {
+        const bullet = createBullet(ship);
+        if (ship.upgrades.includes('big_bullets')) {
+            bullet.radius = 5;
+        }
+        bullets.push(bullet);
+        broadcastEvent(createEvent(GameEvents.SHOT_FIRED, { playerId: ship.id }));
+    }
+}
+
 function render() {
+    const myShip = ships[myId];
+
+    // If in mining mode, render lunar lander instead
+    if (myShip && myShip.state === PlayerState.MINING) {
+        renderLander();
+        return;
+    }
+
     // Clear
     ctx.fillStyle = '#0a0a1a';
     ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
@@ -991,14 +1478,53 @@ function render() {
         ctx.fillRect(x, y, 1, 1);
     }
 
-    // Draw rocks
-    rocks.forEach(drawRock);
+    // Draw rocks (highlight mineable ones)
+    rocks.forEach(rock => {
+        drawRock(rock);
+        // Highlight if we're near and can mine
+        if (myShip && myShip.nearRock === rock) {
+            ctx.strokeStyle = '#4f4';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.arc(rock.x, rock.y, rock.radius + 10, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    });
 
     // Draw bullets
     bullets.forEach(drawBullet);
 
-    // Draw ships
-    Object.values(ships).forEach(drawShip);
+    // Draw ships (skip those who are mining)
+    Object.values(ships).forEach(ship => {
+        if (ship.state !== PlayerState.MINING) {
+            drawShip(ship);
+        }
+    });
+
+    // Show mining prompt if near a rock
+    if (myShip && myShip.nearRock) {
+        ctx.fillStyle = '#4f4';
+        ctx.font = '16px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Press E to mine', myShip.nearRock.x, myShip.nearRock.y - myShip.nearRock.radius - 20);
+        ctx.textAlign = 'left';
+    }
+
+    // Show upgrades
+    if (myShip && myShip.upgrades.length > 0) {
+        ctx.fillStyle = '#888';
+        ctx.font = '12px "Courier New", monospace';
+        ctx.fillText('Upgrades:', CONFIG.width - 120, 20);
+        myShip.upgrades.forEach((upId, i) => {
+            const upgrade = Object.values(UPGRADES).find(u => u.id === upId);
+            if (upgrade) {
+                ctx.fillStyle = upgrade.color;
+                ctx.fillText(upgrade.name, CONFIG.width - 120, 35 + i * 15);
+            }
+        });
+    }
 }
 
 function updateHUD() {
@@ -1032,9 +1558,16 @@ function setupInput() {
         if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
         if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
         if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = true;
+        if (e.code === 'KeyE') keys.mine = true;
         if (e.code === 'Space') {
             keys.space = true;
             e.preventDefault();
+
+            // Handle lander exit
+            if (landerState && landerState.status !== 'active') {
+                const success = landerState.status === 'landed';
+                exitMiningMode(success, landerState.reward);
+            }
         }
     });
 
@@ -1042,6 +1575,7 @@ function setupInput() {
         if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
         if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
         if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = false;
+        if (e.code === 'KeyE') keys.mine = false;
         if (e.code === 'Space') keys.space = false;
     });
 
@@ -1050,6 +1584,7 @@ function setupInput() {
     setupTouchButton('right-btn', 'right');
     setupTouchButton('thrust-btn', 'up');
     setupTouchButton('fire-btn', 'space');
+    setupTouchButton('mine-btn', 'mine');
 }
 
 function setupTouchButton(btnId, key) {
