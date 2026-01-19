@@ -6,7 +6,7 @@ import { CONFIG, PlayerState } from './config.js';
 import { playShoot, playClick, playExplosion, playChime, startThrust, stopThrust, playRockCollision } from './audio.js';
 import { updateParticles, renderParticles, spawnThrustParticle, addParticle, spawnRockCollisionParticles } from './particles.js';
 import { initStarfield, updateStarfield, renderStarfield } from './starfield.js';
-import { createShip, updateShip, drawShip } from './entities/ship.js';
+import { createShip, updateShip, drawShip, drawMiningShipOnRock } from './entities/ship.js';
 import { createRock, updateRock, drawRock, spawnInitialRocks } from './entities/rock.js';
 import { createBullet, updateBullet, drawBullet, createMissile, updateMissile, drawMissile, createMine, updateMine, drawMine } from './entities/projectiles.js';
 import { distance, checkRockCollisions } from './physics.js';
@@ -233,6 +233,13 @@ function fireSecondary(ship) {
 // COLLISIONS
 // ===========================================
 
+// Check if a rock is currently being mined by any player
+function isRockBeingMined(rockId) {
+    return Object.values(ships).some(
+        ship => ship.state === PlayerState.MINING && ship.miningRockId === rockId
+    );
+}
+
 function checkBulletRockCollisions() {
     if (!isHost) return;
 
@@ -242,6 +249,9 @@ function checkBulletRockCollisions() {
 
         for (let j = rocks.length - 1; j >= 0; j--) {
             const rock = rocks[j];
+            // Skip rocks being mined
+            if (isRockBeingMined(rock.id)) continue;
+
             if (distance(bullet, rock) < rock.radius + bulletRadius) {
                 broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
                     playerId: bullet.ownerId,
@@ -302,9 +312,10 @@ function checkBulletRockCollisions() {
                     glow: true
                 });
 
-                // Explosive chain reaction
+                // Explosive chain reaction (skip mined rocks)
                 if (isExplosive) {
                     for (let k = rocks.length - 1; k >= 0; k--) {
+                        if (isRockBeingMined(rocks[k].id)) continue;
                         if (distance({ x: rockX, y: rockY }, rocks[k]) < 80) {
                             broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
                                 playerId: bullet.ownerId,
@@ -341,6 +352,9 @@ function checkMineCollisions() {
 
         for (let j = rocks.length - 1; j >= 0; j--) {
             const rock = rocks[j];
+            // Skip rocks being mined
+            if (isRockBeingMined(rock.id)) continue;
+
             const dist = distance(mine, rock);
 
             if (dist < mine.triggerRadius + rock.radius) {
@@ -358,9 +372,12 @@ function explodeMine(mine, index) {
     mines.splice(index, 1);
     playExplosion(0);
 
-    // Damage nearby rocks
+    // Damage nearby rocks (skip mined rocks)
     for (let i = rocks.length - 1; i >= 0; i--) {
         const rock = rocks[i];
+        // Skip rocks being mined
+        if (isRockBeingMined(rock.id)) continue;
+
         if (distance({ x, y }, rock) < 80) {
             broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
                 playerId: mine.ownerId,
@@ -421,6 +438,9 @@ function checkMissileRockCollisions() {
 
         for (let j = rocks.length - 1; j >= 0; j--) {
             const rock = rocks[j];
+            // Skip rocks being mined
+            if (isRockBeingMined(rock.id)) continue;
+
             if (distance(missile, rock) < rock.radius + 10) {
                 broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
                     playerId: missile.ownerId,
@@ -624,9 +644,30 @@ export function render() {
     // Draw starfield and nebulas
     renderStarfield(ctx);
 
-    // Draw rocks (highlight mineable ones)
+    // Check which rocks are being mined
+    const minedRockIds = new Set(
+        Object.values(ships)
+            .filter(s => s.state === PlayerState.MINING && s.miningRockId)
+            .map(s => s.miningRockId)
+    );
+
+    // Draw rocks (highlight mineable ones and mined ones)
     rocks.forEach(rock => {
         drawRock(ctx, rock);
+
+        // Highlight rocks being mined with a pulsing glow
+        if (minedRockIds.has(rock.id)) {
+            const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200);
+            ctx.strokeStyle = `rgba(255, 200, 100, ${0.5 + pulse * 0.5})`;
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#fa0';
+            ctx.shadowBlur = 10 + pulse * 10;
+            ctx.beginPath();
+            ctx.arc(rock.x, rock.y, rock.radius + 5, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
         // Highlight if we're near and can mine
         if (myShip && myShip.nearRock === rock) {
             const progress = (myShip.miningCountdown || 0) / 120;
@@ -676,9 +717,15 @@ export function render() {
     // Draw particles
     renderParticles(ctx);
 
-    // Draw ships (skip those who are mining)
+    // Draw ships
     Object.values(ships).forEach(ship => {
-        if (ship.state !== PlayerState.MINING) {
+        if (ship.state === PlayerState.MINING) {
+            // Draw tiny ship on the rock they're mining
+            const miningRock = rocks.find(r => r.id === ship.miningRockId);
+            if (miningRock) {
+                drawMiningShipOnRock(ctx, ship, miningRock);
+            }
+        } else {
             drawShip(ctx, ship);
         }
     });

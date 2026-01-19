@@ -147,7 +147,7 @@ export function setupHost(myName, myUserId, ships, onReady) {
             connections = connections.filter(c => c !== conn);
             delete ships[conn.peer];
             updatePlayerCount(ships);
-            broadcastState(ships, [], []);
+            broadcastState(ships, rocksRef || [], bulletsRef || []);
         });
     });
 

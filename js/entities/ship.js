@@ -107,6 +107,43 @@ export function drawShip(ctx, ship) {
     ctx.restore();
 }
 
+// Draw a tiny ship on a rock (for mining players)
+export function drawMiningShipOnRock(ctx, ship, rock) {
+    if (!rock) return;
+
+    const scale = 0.4; // Tiny ship
+    const orbitRadius = rock.radius + 8;
+
+    // Position ship on the rock's surface (use ship angle for position)
+    const posAngle = ship.angle + Math.PI; // Opposite of ship facing
+    const x = rock.x + Math.cos(posAngle) * orbitRadius;
+    const y = rock.y + Math.sin(posAngle) * orbitRadius;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(ship.angle);
+    ctx.scale(scale, scale);
+
+    // Ship body
+    ctx.strokeStyle = ship.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(CONFIG.shipSize, 0);
+    ctx.lineTo(-CONFIG.shipSize / 2, -CONFIG.shipSize / 2);
+    ctx.lineTo(-CONFIG.shipSize / 3, 0);
+    ctx.lineTo(-CONFIG.shipSize / 2, CONFIG.shipSize / 2);
+    ctx.closePath();
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Draw name near the rock
+    ctx.fillStyle = ship.color;
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(ship.name + ' ⛏', rock.x, rock.y - rock.radius - 15);
+}
+
 function wrapPosition(obj) {
     if (obj.x < 0) obj.x = CONFIG.width;
     if (obj.x > CONFIG.width) obj.x = 0;
