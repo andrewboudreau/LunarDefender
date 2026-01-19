@@ -6,15 +6,17 @@ const CONFIG = {
     width: 1200,
     height: 800,
     shipSize: 20,
-    shipThrust: 0.15,
-    shipFriction: 0.99,
-    shipRotSpeed: 0.08,
-    bulletSpeed: 8,
-    bulletLife: 60,
+    shipThrust: 0.08,       // Reduced from 0.15
+    shipMaxSpeed: 6,        // New: cap max velocity
+    shipFriction: 0.995,    // Slightly less friction (slows more gradually)
+    shipRotSpeed: 0.05,     // Reduced from 0.08
+    bulletSpeed: 5,         // Reduced from 8
+    bulletLife: 80,         // Increased from 60 (bullets last longer at slower speed)
     rockSizes: [40, 25, 15],
-    rockSpeed: 2,
+    rockSpeed: 1.2,         // Reduced from 2
     initialRocks: 5,
-    networkTickRate: 50, // ms between network updates
+    networkTickRate: 50,    // ms between network updates
+    fuelPerThrust: 0.1,     // Fuel units consumed per frame of thrust
 };
 
 // ============== USER IDENTITY ==============
@@ -72,6 +74,103 @@ function getPlayerName() {
         setDisplayName(name);
     }
     return name;
+}
+
+// ============== STATS SYSTEM ==============
+function createSessionStats() {
+    return {
+        rocksDestroyed: 0,
+        shotsFired: 0,
+        fuelUsed: 0,
+        sessionStart: Date.now(),
+        deaths: 0
+    };
+}
+
+function createLifetimeStats() {
+    return {
+        rocksDestroyed: 0,
+        shotsFired: 0,
+        fuelUsed: 0,
+        gamesPlayed: 0,
+        timePlayed: 0,  // seconds
+        deaths: 0,
+        lastPlayed: null
+    };
+}
+
+function loadLifetimeStats() {
+    try {
+        const stored = localStorage.getItem('lunar_stats');
+        if (stored) {
+            return JSON.parse(stored);
+        }
+    } catch (e) {
+        console.warn('Failed to load stats:', e);
+    }
+    return createLifetimeStats();
+}
+
+function saveLifetimeStats(stats) {
+    try {
+        localStorage.setItem('lunar_stats', JSON.stringify(stats));
+    } catch (e) {
+        console.warn('Failed to save stats:', e);
+    }
+}
+
+function mergeSessionIntoLifetime(session, lifetime) {
+    lifetime.rocksDestroyed += session.rocksDestroyed;
+    lifetime.shotsFired += session.shotsFired;
+    lifetime.fuelUsed += session.fuelUsed;
+    lifetime.deaths += session.deaths;
+    lifetime.timePlayed += Math.floor((Date.now() - session.sessionStart) / 1000);
+    lifetime.gamesPlayed += 1;
+    lifetime.lastPlayed = new Date().toISOString();
+    return lifetime;
+}
+
+// Global stats objects
+let mySessionStats = null;
+let myLifetimeStats = null;
+
+function saveCurrentStats() {
+    if (!gameRunning || !myId || !ships[myId]) return;
+
+    const myShip = ships[myId];
+    if (myShip && myShip.stats) {
+        // Create a copy of current session for merging
+        const sessionCopy = { ...myShip.stats };
+
+        // Merge into lifetime (but don't double-count - track what we've already saved)
+        if (!myShip.stats._lastSaved) {
+            myShip.stats._lastSaved = createSessionStats();
+        }
+
+        // Calculate delta since last save
+        const delta = {
+            rocksDestroyed: sessionCopy.rocksDestroyed - myShip.stats._lastSaved.rocksDestroyed,
+            shotsFired: sessionCopy.shotsFired - myShip.stats._lastSaved.shotsFired,
+            fuelUsed: sessionCopy.fuelUsed - myShip.stats._lastSaved.fuelUsed,
+            deaths: sessionCopy.deaths - myShip.stats._lastSaved.deaths,
+            sessionStart: sessionCopy.sessionStart
+        };
+
+        // Only save if there's new data
+        if (delta.rocksDestroyed > 0 || delta.shotsFired > 0 || delta.fuelUsed > 0) {
+            myLifetimeStats.rocksDestroyed += delta.rocksDestroyed;
+            myLifetimeStats.shotsFired += delta.shotsFired;
+            myLifetimeStats.fuelUsed += delta.fuelUsed;
+            myLifetimeStats.deaths += delta.deaths;
+            myLifetimeStats.lastPlayed = new Date().toISOString();
+
+            saveLifetimeStats(myLifetimeStats);
+            console.log('Stats saved:', delta);
+
+            // Update last saved reference
+            myShip.stats._lastSaved = { ...sessionCopy };
+        }
+    }
 }
 
 // ============== GAME STATE ==============
@@ -137,7 +236,8 @@ function createShip(id, x, y, color, name) {
         angle: -Math.PI / 2,
         color: color || randomColor(),
         thrusting: false,
-        name: name || 'Unknown'
+        name: name || 'Unknown',
+        stats: createSessionStats()
     };
 }
 
@@ -151,6 +251,16 @@ function updateShip(ship, input) {
     if (input.up) {
         ship.vx += Math.cos(ship.angle) * CONFIG.shipThrust;
         ship.vy += Math.sin(ship.angle) * CONFIG.shipThrust;
+
+        // Track fuel usage
+        if (ship.stats) ship.stats.fuelUsed += CONFIG.fuelPerThrust;
+    }
+
+    // Cap max speed
+    const speed = Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy);
+    if (speed > CONFIG.shipMaxSpeed) {
+        ship.vx = (ship.vx / speed) * CONFIG.shipMaxSpeed;
+        ship.vy = (ship.vy / speed) * CONFIG.shipMaxSpeed;
     }
 
     // Friction
@@ -351,6 +461,12 @@ function checkCollisions() {
         for (let j = rocks.length - 1; j >= 0; j--) {
             const rock = rocks[j];
             if (distance(bullet, rock) < rock.radius) {
+                // Credit the player who fired this bullet
+                const shooter = ships[bullet.ownerId];
+                if (shooter && shooter.stats) {
+                    shooter.stats.rocksDestroyed++;
+                }
+
                 // Remove bullet
                 bullets.splice(i, 1);
 
@@ -503,6 +619,7 @@ function handleClientMessage(clientId, data) {
             if (data.shooting && Date.now() - (ships[clientId].lastShot || 0) > 200) {
                 bullets.push(createBullet(ships[clientId]));
                 ships[clientId].lastShot = Date.now();
+                if (ships[clientId].stats) ships[clientId].stats.shotsFired++;
             }
             // Store input for physics update
             ships[clientId].input = data;
@@ -716,6 +833,7 @@ function update() {
             if (input.space && Date.now() - lastShot > 200) {
                 bullets.push(createBullet(ships[myId]));
                 lastShot = Date.now();
+                if (ships[myId].stats) ships[myId].stats.shotsFired++;
             }
             updateShip(ships[myId], input);
         }
@@ -777,6 +895,14 @@ function render() {
 function updateHUD() {
     document.getElementById('hud-players').textContent = Object.keys(ships).length;
     document.getElementById('hud-rocks').textContent = rocks.length;
+
+    // Update my stats display
+    const myShip = ships[myId];
+    if (myShip && myShip.stats) {
+        document.getElementById('hud-hits').textContent = myShip.stats.rocksDestroyed;
+        document.getElementById('hud-shots').textContent = myShip.stats.shotsFired;
+        document.getElementById('hud-fuel').textContent = Math.floor(myShip.stats.fuelUsed);
+    }
 }
 
 // ============== INPUT HANDLING ==============
@@ -902,7 +1028,13 @@ function init() {
     // Initialize user identity
     myUserId = getOrCreateUserId();
     myName = getPlayerName();
+    myLifetimeStats = loadLifetimeStats();
     console.log('User ID:', myUserId, 'Name:', myName);
+    console.log('Lifetime stats:', myLifetimeStats);
+
+    // Save stats periodically and on page unload
+    setInterval(saveCurrentStats, 30000); // Every 30 seconds
+    window.addEventListener('beforeunload', saveCurrentStats);
 
     setupMenu();
     setupInput();
