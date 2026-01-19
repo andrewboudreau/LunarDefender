@@ -32,37 +32,105 @@ const UPGRADES = {
         id: 'spread_shot',
         name: 'Spread Shot',
         desc: 'Fire 3 bullets in a cone',
-        color: '#f4a'
+        color: '#f4a',
+        ammo: 30,
+        type: 'primary'  // Modifies primary fire
     },
     RAPID_FIRE: {
         id: 'rapid_fire',
         name: 'Rapid Fire',
         desc: 'Shoot twice as fast',
-        color: '#fa4'
+        color: '#fa4',
+        ammo: 50,
+        type: 'primary'
     },
     EXPLOSIVES: {
         id: 'explosives',
         name: 'Explosive Rounds',
         desc: 'Bullets explode on impact',
-        color: '#f44'
+        color: '#f44',
+        ammo: 15,
+        type: 'primary'
     },
     SHIELD: {
         id: 'shield',
         name: 'Energy Shield',
         desc: 'Protect from one crash',
-        color: '#4af'
+        color: '#4af',
+        ammo: 1,
+        type: 'passive'  // Always active until used
     },
     BIG_BULLETS: {
         id: 'big_bullets',
         name: 'Heavy Rounds',
         desc: 'Larger, more powerful shots',
-        color: '#a4f'
+        color: '#a4f',
+        ammo: 20,
+        type: 'primary'
+    },
+    HOMING_MISSILES: {
+        id: 'homing_missiles',
+        name: 'Homing Missiles',
+        desc: 'Lock-on missiles that track rocks',
+        color: '#4ff',
+        ammo: 8,
+        type: 'secondary'  // Alt-fire weapon
+    },
+    PROXIMITY_MINES: {
+        id: 'proximity_mines',
+        name: 'Proximity Mines',
+        desc: 'Deploy mines that explode near rocks',
+        color: '#f4f',
+        ammo: 5,
+        type: 'secondary'
     }
 };
 
 function getRandomUpgrade() {
     const keys = Object.keys(UPGRADES);
     return UPGRADES[keys[Math.floor(Math.random() * keys.length)]];
+}
+
+// Get upgrade with ammo for a ship
+function getShipUpgrade(ship, upgradeId) {
+    if (!ship || !ship.upgrades) return null;
+    return ship.upgrades.find(u => u.id === upgradeId);
+}
+
+function hasUpgrade(ship, upgradeId) {
+    const upgrade = getShipUpgrade(ship, upgradeId);
+    return upgrade && upgrade.ammo > 0;
+}
+
+function useUpgradeAmmo(ship, upgradeId, amount = 1) {
+    const upgrade = getShipUpgrade(ship, upgradeId);
+    if (upgrade) {
+        upgrade.ammo -= amount;
+        if (upgrade.ammo <= 0) {
+            // Remove depleted upgrade
+            ship.upgrades = ship.upgrades.filter(u => u.id !== upgradeId);
+            return true; // Was depleted
+        }
+    }
+    return false;
+}
+
+function addUpgradeToShip(ship, upgradeData) {
+    if (!ship.upgrades) ship.upgrades = [];
+
+    // Check if we already have this upgrade
+    const existing = ship.upgrades.find(u => u.id === upgradeData.id);
+    if (existing) {
+        // Add ammo to existing
+        existing.ammo += upgradeData.ammo;
+    } else {
+        // Add new upgrade with ammo
+        ship.upgrades.push({
+            id: upgradeData.id,
+            ammo: upgradeData.ammo,
+            type: upgradeData.type
+        });
+    }
 }
 
 // ============== AUDIO SYSTEM ==============
@@ -850,6 +918,8 @@ let hostConnection = null; // For client: connection to host
 let ships = {}; // { odspeeId: shipObject }
 let rocks = [];
 let bullets = [];
+let missiles = [];  // Homing missiles
+let mines = [];     // Proximity mines
 
 // Local input state
 let keys = {
@@ -857,9 +927,11 @@ let keys = {
     right: false,
     up: false,
     space: false,
-    mine: false    // E key for mining
+    mine: false,    // E key for mining
+    altFire: false  // Q key for secondary weapons
 };
 let lastShot = 0;
+let lastAltFire = 0;
 
 // ============== SHARING & INVITES ==============
 function getInviteUrl(roomCode) {
@@ -1152,7 +1224,12 @@ function updateBullet(bullet) {
     bullet.x += bullet.vx;
     bullet.y += bullet.vy;
     bullet.life--;
-    wrapPosition(bullet);
+
+    // Bullets don't wrap - remove when off-screen
+    if (bullet.x < 0 || bullet.x > CONFIG.width ||
+        bullet.y < 0 || bullet.y > CONFIG.height) {
+        bullet.life = 0;
+    }
 }
 
 function drawBullet(bullet) {
@@ -1160,6 +1237,285 @@ function drawBullet(bullet) {
     ctx.beginPath();
     ctx.arc(bullet.x, bullet.y, bullet.radius || 3, 0, Math.PI * 2);
     ctx.fill();
+}
+
+// ============== HOMING MISSILES ==============
+function createMissile(ship) {
+    // Find nearest rock to target
+    let target = null;
+    let nearestDist = 400; // Max lock range
+    for (const rock of rocks) {
+        const d = distance(ship, rock);
+        if (d < nearestDist) {
+            nearestDist = d;
+            target = rock;
+        }
+    }
+
+    return {
+        id: Math.random().toString(36).substr(2, 9),
+        x: ship.x + Math.cos(ship.angle) * CONFIG.shipSize,
+        y: ship.y + Math.sin(ship.angle) * CONFIG.shipSize,
+        vx: Math.cos(ship.angle) * 3 + ship.vx * 0.5,
+        vy: Math.sin(ship.angle) * 3 + ship.vy * 0.5,
+        angle: ship.angle,
+        life: 180,  // 3 seconds
+        color: '#4ff',
+        ownerId: ship.id,
+        targetId: target ? target.id : null,
+        thrustTimer: 0
+    };
+}
+
+function updateMissile(missile) {
+    missile.life--;
+    missile.thrustTimer++;
+
+    // Find target rock
+    const target = rocks.find(r => r.id === missile.targetId);
+
+    if (target) {
+        // Calculate angle to target
+        const targetAngle = Math.atan2(target.y - missile.y, target.x - missile.x);
+
+        // Gradually turn towards target
+        let angleDiff = targetAngle - missile.angle;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+        missile.angle += angleDiff * 0.08; // Turn rate
+
+        // Thrust towards target
+        const thrust = 0.15;
+        missile.vx += Math.cos(missile.angle) * thrust;
+        missile.vy += Math.sin(missile.angle) * thrust;
+    }
+
+    // Cap speed
+    const speed = Math.sqrt(missile.vx * missile.vx + missile.vy * missile.vy);
+    if (speed > 8) {
+        missile.vx = (missile.vx / speed) * 8;
+        missile.vy = (missile.vy / speed) * 8;
+    }
+
+    // Move
+    missile.x += missile.vx;
+    missile.y += missile.vy;
+    wrapPosition(missile);
+
+    // Spawn thrust particles
+    if (missile.thrustTimer % 2 === 0) {
+        const backAngle = missile.angle + Math.PI + (Math.random() - 0.5) * 0.3;
+        particles.push({
+            x: missile.x - Math.cos(missile.angle) * 8,
+            y: missile.y - Math.sin(missile.angle) * 8,
+            vx: Math.cos(backAngle) * 2,
+            vy: Math.sin(backAngle) * 2,
+            color: Math.random() > 0.5 ? '#4ff' : '#8ff',
+            life: 10 + Math.random() * 10,
+            maxLife: 20,
+            size: 1 + Math.random(),
+            glow: true
+        });
+    }
+}
+
+function drawMissile(missile) {
+    ctx.save();
+    ctx.translate(missile.x, missile.y);
+    ctx.rotate(missile.angle);
+
+    // Glow
+    ctx.shadowColor = '#4ff';
+    ctx.shadowBlur = 10;
+
+    // Missile body
+    ctx.fillStyle = '#4ff';
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(-5, -4);
+    ctx.lineTo(-3, 0);
+    ctx.lineTo(-5, 4);
+    ctx.closePath();
+    ctx.fill();
+
+    // Thrust flame
+    ctx.shadowBlur = 5;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(-3, -2);
+    ctx.lineTo(-8 - Math.random() * 4, 0);
+    ctx.lineTo(-3, 2);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.restore();
+}
+
+// ============== PROXIMITY MINES ==============
+function createMine(ship) {
+    return {
+        id: Math.random().toString(36).substr(2, 9),
+        x: ship.x - Math.cos(ship.angle) * CONFIG.shipSize,
+        y: ship.y - Math.sin(ship.angle) * CONFIG.shipSize,
+        vx: -Math.cos(ship.angle) * 1 + ship.vx * 0.3,
+        vy: -Math.sin(ship.angle) * 1 + ship.vy * 0.3,
+        life: 600,  // 10 seconds
+        armed: false,
+        armTimer: 60,  // 1 second to arm
+        triggerRadius: 50,
+        ownerId: ship.id,
+        pulseTimer: 0
+    };
+}
+
+function updateMine(mine) {
+    mine.life--;
+    mine.pulseTimer++;
+
+    // Arm after delay
+    if (!mine.armed) {
+        mine.armTimer--;
+        if (mine.armTimer <= 0) {
+            mine.armed = true;
+        }
+    }
+
+    // Slow down
+    mine.vx *= 0.98;
+    mine.vy *= 0.98;
+
+    // Move
+    mine.x += mine.vx;
+    mine.y += mine.vy;
+    wrapPosition(mine);
+}
+
+function drawMine(mine) {
+    ctx.save();
+    ctx.translate(mine.x, mine.y);
+
+    // Pulse effect
+    const pulse = Math.sin(mine.pulseTimer * 0.1) * 0.3 + 0.7;
+
+    // Glow
+    ctx.shadowColor = mine.armed ? '#f4f' : '#888';
+    ctx.shadowBlur = 10 * pulse;
+
+    // Outer ring
+    ctx.strokeStyle = mine.armed ? `rgba(255, 68, 255, ${pulse})` : '#666';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 8, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner core
+    ctx.fillStyle = mine.armed ? '#f4f' : '#444';
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Spikes
+    ctx.strokeStyle = mine.armed ? '#f4f' : '#666';
+    for (let i = 0; i < 4; i++) {
+        const angle = (i / 4) * Math.PI * 2 + mine.pulseTimer * 0.02;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * 8, Math.sin(angle) * 8);
+        ctx.lineTo(Math.cos(angle) * 12, Math.sin(angle) * 12);
+        ctx.stroke();
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.restore();
+}
+
+function checkMineCollisions() {
+    if (!isHost) return;
+
+    for (let i = mines.length - 1; i >= 0; i--) {
+        const mine = mines[i];
+        if (!mine.armed) continue;
+
+        // Check against rocks
+        for (let j = rocks.length - 1; j >= 0; j--) {
+            const rock = rocks[j];
+            const dist = distance(mine, rock);
+
+            if (dist < mine.triggerRadius + rock.radius) {
+                // BOOM!
+                explodeMine(mine, i);
+                break;
+            }
+        }
+    }
+}
+
+function explodeMine(mine, index) {
+    const x = mine.x;
+    const y = mine.y;
+
+    // Remove mine
+    mines.splice(index, 1);
+
+    // Play explosion sound
+    playExplosion(0);
+
+    // Damage nearby rocks
+    for (let i = rocks.length - 1; i >= 0; i--) {
+        const rock = rocks[i];
+        if (distance({ x, y }, rock) < 80) {
+            broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
+                playerId: mine.ownerId,
+                rockId: rock.id,
+                rockSize: rock.sizeIndex
+            }));
+
+            // Spawn explosion particles
+            const particleCount = (3 - rock.sizeIndex) * 8 + 5;
+            for (let p = 0; p < particleCount; p++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 2 + Math.random() * 3;
+                particles.push({
+                    x: rock.x,
+                    y: rock.y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    color: Math.random() > 0.5 ? '#f4f' : '#888',
+                    life: 25 + Math.random() * 25,
+                    maxLife: 50,
+                    size: 1 + Math.random() * 2,
+                    glow: Math.random() > 0.6
+                });
+            }
+
+            // Split rock if not smallest
+            if (rock.sizeIndex < CONFIG.rockSizes.length - 1) {
+                for (let k = 0; k < 2; k++) {
+                    rocks.push(createRock(rock.x, rock.y, rock.sizeIndex + 1));
+                }
+            }
+
+            rocks.splice(i, 1);
+        }
+    }
+
+    // Big explosion particles
+    for (let p = 0; p < 30; p++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1 + Math.random() * 4;
+        particles.push({
+            x: x + (Math.random() - 0.5) * 20,
+            y: y + (Math.random() - 0.5) * 20,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            color: Math.random() > 0.7 ? '#fff' : (Math.random() > 0.5 ? '#f4f' : '#a4a'),
+            life: 20 + Math.random() * 30,
+            maxLife: 50,
+            size: 2 + Math.random() * 3,
+            glow: true
+        });
+    }
 }
 
 // ============== LUNAR LANDER MINI-GAME ==============
@@ -2223,10 +2579,16 @@ function update() {
             }
 
             // Shooting with upgrades
-            const fireRate = myShip.upgrades.includes('rapid_fire') ? 100 : 200;
+            const fireRate = hasUpgrade(myShip, 'rapid_fire') ? 100 : 200;
             if (input.space && Date.now() - lastShot > fireRate) {
                 fireBullets(myShip);
                 lastShot = Date.now();
+            }
+
+            // Alt-fire for secondary weapons
+            if (keys.altFire && Date.now() - lastAltFire > 300) {
+                fireSecondary(myShip);
+                lastAltFire = Date.now();
             }
 
             // Track host's thrust
@@ -2311,26 +2673,68 @@ function fireBullets(ship) {
         playShoot();
     }
 
-    if (ship.upgrades.includes('spread_shot')) {
+    let usedSpread = false;
+    let usedBig = false;
+    let usedExplosive = false;
+
+    if (hasUpgrade(ship, 'spread_shot')) {
         // Fire 3 bullets in a cone
         for (let i = -1; i <= 1; i++) {
             const spreadAngle = ship.angle + i * 0.2;
             const bullet = createBullet(ship);
             bullet.vx = Math.cos(spreadAngle) * CONFIG.bulletSpeed + ship.vx;
             bullet.vy = Math.sin(spreadAngle) * CONFIG.bulletSpeed + ship.vy;
-            if (ship.upgrades.includes('big_bullets')) {
+            if (hasUpgrade(ship, 'big_bullets')) {
                 bullet.radius = 5;
+                usedBig = true;
+            }
+            if (hasUpgrade(ship, 'explosives')) {
+                bullet.explosive = true;
+                usedExplosive = true;
             }
             bullets.push(bullet);
         }
-        broadcastEvent(createEvent(GameEvents.SHOT_FIRED, { playerId: ship.id }));
+        usedSpread = true;
     } else {
         const bullet = createBullet(ship);
-        if (ship.upgrades.includes('big_bullets')) {
+        if (hasUpgrade(ship, 'big_bullets')) {
             bullet.radius = 5;
+            usedBig = true;
+        }
+        if (hasUpgrade(ship, 'explosives')) {
+            bullet.explosive = true;
+            usedExplosive = true;
         }
         bullets.push(bullet);
-        broadcastEvent(createEvent(GameEvents.SHOT_FIRED, { playerId: ship.id }));
+    }
+
+    // Use ammo for upgrades
+    if (usedSpread) useUpgradeAmmo(ship, 'spread_shot');
+    if (usedBig) useUpgradeAmmo(ship, 'big_bullets');
+    if (usedExplosive) useUpgradeAmmo(ship, 'explosives');
+    if (hasUpgrade(ship, 'rapid_fire')) useUpgradeAmmo(ship, 'rapid_fire');
+
+    broadcastEvent(createEvent(GameEvents.SHOT_FIRED, { playerId: ship.id }));
+}
+
+// Fire secondary weapons (missiles, mines)
+function fireSecondary(ship) {
+    if (!ship) return;
+
+    // Check for homing missiles
+    if (hasUpgrade(ship, 'homing_missiles')) {
+        missiles.push(createMissile(ship));
+        useUpgradeAmmo(ship, 'homing_missiles');
+        if (ship.id === myId) playShoot(); // TODO: missile sound
+        return;
+    }
+
+    // Check for proximity mines
+    if (hasUpgrade(ship, 'proximity_mines')) {
+        mines.push(createMine(ship));
+        useUpgradeAmmo(ship, 'proximity_mines');
+        if (ship.id === myId) playClick(); // Deploy sound
+        return;
     }
 }
 
@@ -2481,6 +2885,7 @@ function setupInput() {
         if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
         if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = true;
         if (e.code === 'KeyE') keys.mine = true;
+        if (e.code === 'KeyQ') keys.altFire = true;
         if (e.code === 'Space') {
             keys.space = true;
             e.preventDefault();
@@ -2498,6 +2903,7 @@ function setupInput() {
         if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
         if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = false;
         if (e.code === 'KeyE') keys.mine = false;
+        if (e.code === 'KeyQ') keys.altFire = false;
         if (e.code === 'Space') keys.space = false;
     });
 
