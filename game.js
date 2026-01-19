@@ -105,41 +105,83 @@ function playShoot() {
     osc.stop(audioCtx.currentTime + 0.1);
 }
 
-// Explosion - low boom with noise
+// Ice crack / shredded wheat breaking sound
 function playExplosion(size = 0) {
     ensureAudio();
 
-    // Base frequency depends on rock size (bigger = lower)
-    const baseFreq = 150 - size * 30;
-    const duration = 0.3 + size * 0.1;
+    const t = audioCtx.currentTime;
 
-    // Tone component
-    const osc = audioCtx.createOscillator();
-    const oscGain = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(baseFreq, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + duration);
-    oscGain.gain.setValueAtTime(0.4, audioCtx.currentTime);
-    oscGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-    osc.connect(oscGain);
-    oscGain.connect(masterGain);
-    osc.start();
-    osc.stop(audioCtx.currentTime + duration);
+    // Ice lake "ping" - high frequency descending tone
+    const ping = audioCtx.createOscillator();
+    const pingGain = audioCtx.createGain();
+    ping.type = 'sine';
+    const pingFreq = 2500 - size * 400;
+    ping.frequency.setValueAtTime(pingFreq, t);
+    ping.frequency.exponentialRampToValueAtTime(pingFreq * 0.3, t + 0.15);
+    pingGain.gain.setValueAtTime(0.2, t);
+    pingGain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+    ping.connect(pingGain);
+    pingGain.connect(masterGain);
+    ping.start(t);
+    ping.stop(t + 0.15);
 
-    // Noise component
-    const bufferSize = audioCtx.sampleRate * duration;
-    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+    // Secondary ping (ice resonance)
+    const ping2 = audioCtx.createOscillator();
+    const ping2Gain = audioCtx.createGain();
+    ping2.type = 'sine';
+    ping2.frequency.setValueAtTime(pingFreq * 1.5, t + 0.02);
+    ping2.frequency.exponentialRampToValueAtTime(pingFreq * 0.5, t + 0.12);
+    ping2Gain.gain.setValueAtTime(0.1, t + 0.02);
+    ping2Gain.gain.exponentialRampToValueAtTime(0.01, t + 0.12);
+    ping2.connect(ping2Gain);
+    ping2Gain.connect(masterGain);
+    ping2.start(t + 0.02);
+    ping2.stop(t + 0.12);
+
+    // Crackle - short bursts of filtered noise (shredded wheat crunch)
+    const crackleCount = 3 + size;
+    for (let i = 0; i < crackleCount; i++) {
+        const delay = i * 0.03 + Math.random() * 0.02;
+        const duration = 0.04 + Math.random() * 0.03;
+        const bufferSize = Math.floor(audioCtx.sampleRate * duration);
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        // Crackly texture
+        for (let j = 0; j < bufferSize; j++) {
+            const env = Math.pow(1 - j / bufferSize, 3);
+            data[j] = (Math.random() * 2 - 1) * env * (Math.random() > 0.7 ? 1 : 0.3);
+        }
+
+        const crackle = audioCtx.createBufferSource();
+        crackle.buffer = buffer;
+
+        // High-pass filter for crispy sound
+        const hpFilter = audioCtx.createBiquadFilter();
+        hpFilter.type = 'highpass';
+        hpFilter.frequency.value = 2000 + Math.random() * 2000;
+
+        const crackleGain = audioCtx.createGain();
+        crackleGain.gain.value = 0.15 + Math.random() * 0.1;
+
+        crackle.connect(hpFilter);
+        hpFilter.connect(crackleGain);
+        crackleGain.connect(masterGain);
+        crackle.start(t + delay);
     }
-    const noise = audioCtx.createBufferSource();
-    const noiseGain = audioCtx.createGain();
-    noise.buffer = buffer;
-    noiseGain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-    noise.connect(noiseGain);
-    noiseGain.connect(masterGain);
-    noise.start();
+
+    // Subtle low thud for impact
+    const thud = audioCtx.createOscillator();
+    const thudGain = audioCtx.createGain();
+    thud.type = 'sine';
+    thud.frequency.setValueAtTime(80 - size * 15, t);
+    thud.frequency.exponentialRampToValueAtTime(30, t + 0.1);
+    thudGain.gain.setValueAtTime(0.15, t);
+    thudGain.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+    thud.connect(thudGain);
+    thudGain.connect(masterGain);
+    thud.start(t);
+    thud.stop(t + 0.1);
 }
 
 // Thrust sound - soft white noise with bass
@@ -170,7 +212,7 @@ function startThrust() {
 
     thrustGain = audioCtx.createGain();
     thrustGain.gain.setValueAtTime(0, audioCtx.currentTime);
-    thrustGain.gain.linearRampToValueAtTime(0.25, audioCtx.currentTime + 0.15);
+    thrustGain.gain.linearRampToValueAtTime(0.45, audioCtx.currentTime + 0.15);
 
     thrustNoise.connect(thrustFilter);
     thrustFilter.connect(thrustGain);
@@ -260,6 +302,84 @@ function playClick() {
     gain.connect(masterGain);
     osc.start();
     osc.stop(audioCtx.currentTime + 0.05);
+}
+
+// ============== PARTICLE SYSTEM ==============
+let particles = [];
+
+function createParticle(x, y, vx, vy, color, life, size) {
+    return {
+        x, y, vx, vy,
+        color: color || '#fff',
+        life: life || 60,
+        maxLife: life || 60,
+        size: size || 2
+    };
+}
+
+function spawnExplosionParticles(x, y, count, color, speed) {
+    for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+        const vel = (speed || 3) * (0.5 + Math.random() * 0.5);
+        particles.push(createParticle(
+            x + (Math.random() - 0.5) * 10,
+            y + (Math.random() - 0.5) * 10,
+            Math.cos(angle) * vel,
+            Math.sin(angle) * vel,
+            color || '#fff',
+            30 + Math.random() * 30,
+            1 + Math.random() * 2
+        ));
+    }
+}
+
+function spawnThrustParticle(ship) {
+    if (!ship || Math.random() > 0.4) return;
+
+    const backX = ship.x - Math.cos(ship.angle) * CONFIG.shipSize * 0.5;
+    const backY = ship.y - Math.sin(ship.angle) * CONFIG.shipSize * 0.5;
+
+    // Add some spread
+    const spread = (Math.random() - 0.5) * 0.5;
+    const angle = ship.angle + Math.PI + spread;
+    const vel = 2 + Math.random() * 2;
+
+    particles.push(createParticle(
+        backX + (Math.random() - 0.5) * 6,
+        backY + (Math.random() - 0.5) * 6,
+        Math.cos(angle) * vel + ship.vx * 0.5,
+        Math.sin(angle) * vel + ship.vy * 0.5,
+        Math.random() > 0.5 ? '#f80' : '#fa0',
+        15 + Math.random() * 15,
+        1 + Math.random() * 2
+    ));
+}
+
+function updateParticles() {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.98;
+        p.vy *= 0.98;
+        p.life--;
+
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+        }
+    }
+}
+
+function renderParticles() {
+    for (const p of particles) {
+        const alpha = p.life / p.maxLife;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
 }
 
 // ============== LUNAR LANDER CONFIG ==============
@@ -1288,6 +1408,14 @@ function checkCollisions() {
                 // Play explosion sound (size affects pitch/duration)
                 playExplosion(rockSize);
 
+                // Spawn explosion particles
+                const particleCount = (3 - rockSize) * 8 + 5; // More particles for bigger rocks
+                const colors = ['#888', '#aaa', '#666', '#fff'];
+                for (let p = 0; p < particleCount; p++) {
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+                    spawnExplosionParticles(rockX, rockY, 1, color, 2 + (2 - rockSize));
+                }
+
                 // Explosive chain reaction - damage nearby rocks
                 if (isExplosive) {
                     for (let k = rocks.length - 1; k >= 0; k--) {
@@ -1717,6 +1845,11 @@ function update() {
                 delete thrustStartTime[myId];
             }
 
+            // Spawn thrust particles
+            if (input.up) {
+                spawnThrustParticle(myShip);
+            }
+
             updateShip(myShip, input);
         }
 
@@ -1740,6 +1873,9 @@ function update() {
 
         // Check collisions
         checkCollisions();
+
+        // Update particles
+        updateParticles();
     } else {
         // Client: check for mining
         if (myShip && myShip.state === PlayerState.FLYING) {
@@ -1752,6 +1888,14 @@ function update() {
 
         // Client sends input to host
         sendInputToHost();
+
+        // Client-side thrust particles
+        if (keys.up && myShip) {
+            spawnThrustParticle(myShip);
+        }
+
+        // Update particles on client too
+        updateParticles();
     }
 
     updateHUD();
@@ -1851,6 +1995,9 @@ function render() {
 
     // Draw bullets
     bullets.forEach(drawBullet);
+
+    // Draw particles
+    renderParticles();
 
     // Draw ships (skip those who are mining)
     Object.values(ships).forEach(ship => {
