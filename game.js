@@ -147,89 +147,80 @@ function playShoot() {
     noise.start(t);
 }
 
-// Rock crack and split sound
+// Rock chonk and crack sound
 function playExplosion(size = 0) {
     ensureAudio();
 
     const t = audioCtx.currentTime;
 
-    // Main crack - mid frequency snap
+    // THE CHONK - deep bass hit with quick attack
+    const chonk = audioCtx.createOscillator();
+    const chonkGain = audioCtx.createGain();
+    chonk.type = 'sine';
+    chonk.frequency.setValueAtTime(65 - size * 10, t);
+    chonk.frequency.exponentialRampToValueAtTime(25, t + 0.12);
+    chonkGain.gain.setValueAtTime(0.5, t);
+    chonkGain.gain.exponentialRampToValueAtTime(0.01, t + 0.12);
+    chonk.connect(chonkGain);
+    chonkGain.connect(masterGain);
+    chonk.start(t);
+    chonk.stop(t + 0.12);
+
+    // Sub bass layer for extra weight
+    const sub = audioCtx.createOscillator();
+    const subGain = audioCtx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(40, t);
+    sub.frequency.exponentialRampToValueAtTime(20, t + 0.1);
+    subGain.gain.setValueAtTime(0.35, t);
+    subGain.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+    sub.connect(subGain);
+    subGain.connect(masterGain);
+    sub.start(t);
+    sub.stop(t + 0.1);
+
+    // Short crack snap - low-mid punch
     const crack = audioCtx.createOscillator();
     const crackGain = audioCtx.createGain();
-    crack.type = 'sawtooth';
-    const crackFreq = 400 - size * 80;
-    crack.frequency.setValueAtTime(crackFreq, t);
-    crack.frequency.exponentialRampToValueAtTime(80, t + 0.06);
-    crackGain.gain.setValueAtTime(0.2, t);
-    crackGain.gain.exponentialRampToValueAtTime(0.01, t + 0.06);
+    crack.type = 'square';
+    crack.frequency.setValueAtTime(120, t);
+    crack.frequency.exponentialRampToValueAtTime(40, t + 0.03);
+    crackGain.gain.setValueAtTime(0.12, t);
+    crackGain.gain.exponentialRampToValueAtTime(0.01, t + 0.03);
 
     const crackFilter = audioCtx.createBiquadFilter();
     crackFilter.type = 'lowpass';
-    crackFilter.frequency.value = 1200;
+    crackFilter.frequency.value = 400;
 
     crack.connect(crackFilter);
     crackFilter.connect(crackGain);
     crackGain.connect(masterGain);
     crack.start(t);
-    crack.stop(t + 0.06);
+    crack.stop(t + 0.03);
 
-    // Deep thud - the weight of the split
-    const thud = audioCtx.createOscillator();
-    const thudGain = audioCtx.createGain();
-    thud.type = 'sine';
-    thud.frequency.setValueAtTime(100 - size * 20, t);
-    thud.frequency.exponentialRampToValueAtTime(35, t + 0.15);
-    thudGain.gain.setValueAtTime(0.3, t);
-    thudGain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
-    thud.connect(thudGain);
-    thudGain.connect(masterGain);
-    thud.start(t);
-    thud.stop(t + 0.15);
-
-    // Crumble/debris noise - lower frequency
-    const debrisCount = 2 + size;
-    for (let i = 0; i < debrisCount; i++) {
-        const delay = i * 0.02 + Math.random() * 0.02;
-        const duration = 0.05 + Math.random() * 0.04;
-        const bufferSize = Math.floor(audioCtx.sampleRate * duration);
-        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-        const data = buffer.getChannelData(0);
-
-        for (let j = 0; j < bufferSize; j++) {
-            const env = Math.pow(1 - j / bufferSize, 2);
-            data[j] = (Math.random() * 2 - 1) * env;
-        }
-
-        const debris = audioCtx.createBufferSource();
-        debris.buffer = buffer;
-
-        // Bandpass for rocky crumble texture
-        const bpFilter = audioCtx.createBiquadFilter();
-        bpFilter.type = 'bandpass';
-        bpFilter.frequency.value = 300 + Math.random() * 400;
-        bpFilter.Q.value = 1;
-
-        const debrisGain = audioCtx.createGain();
-        debrisGain.gain.value = 0.15 + Math.random() * 0.1;
-
-        debris.connect(bpFilter);
-        bpFilter.connect(debrisGain);
-        debrisGain.connect(masterGain);
-        debris.start(t + delay);
+    // Low rumble debris
+    const rumbleSize = Math.floor(audioCtx.sampleRate * 0.08);
+    const rumbleBuffer = audioCtx.createBuffer(1, rumbleSize, audioCtx.sampleRate);
+    const rumbleData = rumbleBuffer.getChannelData(0);
+    for (let i = 0; i < rumbleSize; i++) {
+        const env = Math.pow(1 - i / rumbleSize, 1.5);
+        rumbleData[i] = (Math.random() * 2 - 1) * env;
     }
 
-    // Subtle secondary crack
-    const crack2 = audioCtx.createOscillator();
-    const crack2Gain = audioCtx.createGain();
-    crack2.type = 'triangle';
-    crack2.frequency.setValueAtTime(250, t + 0.03);
-    crack2.frequency.exponentialRampToValueAtTime(60, t + 0.08);
-    crack2Gain.gain.setValueAtTime(0.1, t + 0.03);
-    crack2Gain.gain.exponentialRampToValueAtTime(0.01, t + 0.08);
-    crack2.connect(crack2Gain);
-    crack2Gain.connect(masterGain);
-    crack2.start(t + 0.03);
-    crack2.stop(t + 0.08);
+    const rumble = audioCtx.createBufferSource();
+    rumble.buffer = rumbleBuffer;
+
+    const rumbleFilter = audioCtx.createBiquadFilter();
+    rumbleFilter.type = 'lowpass';
+    rumbleFilter.frequency.value = 200;
+
+    const rumbleGain = audioCtx.createGain();
+    rumbleGain.gain.value = 0.25;
+
+    rumble.connect(rumbleFilter);
+    rumbleFilter.connect(rumbleGain);
+    rumbleGain.connect(masterGain);
+    rumble.start(t);
 }
 
 // Thrust sound - soft white noise with bass
