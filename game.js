@@ -1667,6 +1667,15 @@ function render() {
             }
         });
     }
+
+    // Show host info in bottom left
+    if (currentRoomCode) {
+        ctx.fillStyle = '#666';
+        ctx.font = '12px "Courier New", monospace';
+        const hostName = isHost ? myName : (Object.values(ships).find(s => s.id === currentRoomCode)?.name || 'Host');
+        ctx.fillText(`Host: ${hostName}`, 10, CONFIG.height - 30);
+        ctx.fillText(`Room: ${currentRoomCode}`, 10, CONFIG.height - 15);
+    }
 }
 
 function updateHUD() {
