@@ -17,12 +17,71 @@ const CONFIG = {
     networkTickRate: 50, // ms between network updates
 };
 
+// ============== USER IDENTITY ==============
+const ADJECTIVES = [
+    'Swift', 'Cosmic', 'Stellar', 'Lunar', 'Solar', 'Atomic', 'Turbo', 'Hyper',
+    'Neon', 'Plasma', 'Quantum', 'Astral', 'Blazing', 'Electric', 'Frozen', 'Golden'
+];
+const NOUNS = [
+    'Pilot', 'Comet', 'Rocket', 'Falcon', 'Phoenix', 'Ranger', 'Voyager', 'Pioneer',
+    'Hunter', 'Drifter', 'Striker', 'Blaster', 'Cruiser', 'Phantom', 'Spark', 'Nova'
+];
+
+function generateUserId() {
+    return 'user_' + Math.random().toString(36).substr(2, 12) + Date.now().toString(36);
+}
+
+function generateNickname() {
+    const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+    const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+    const num = Math.floor(Math.random() * 100);
+    return `${adj}${noun}${num}`;
+}
+
+function setCookie(name, value, days = 365) {
+    const expires = new Date(Date.now() + days * 864e5).toUTCString();
+    document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+}
+
+function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return match ? decodeURIComponent(match[2]) : null;
+}
+
+function getOrCreateUserId() {
+    let userId = getCookie('lunar_user_id');
+    if (!userId) {
+        userId = generateUserId();
+        setCookie('lunar_user_id', userId);
+    }
+    return userId;
+}
+
+function getDisplayName() {
+    return getCookie('lunar_display_name') || null;
+}
+
+function setDisplayName(name) {
+    setCookie('lunar_display_name', name.trim().substring(0, 20));
+}
+
+function getPlayerName() {
+    let name = getDisplayName();
+    if (!name) {
+        name = generateNickname();
+        setDisplayName(name);
+    }
+    return name;
+}
+
 // ============== GAME STATE ==============
 let canvas, ctx;
 let isHost = false;
 let isBot = false;
 let gameRunning = false;
 let myId = null;
+let myUserId = null;
+let myName = null;
 let peer = null;
 let connections = []; // For host: all client connections
 let hostConnection = null; // For client: connection to host
@@ -68,7 +127,7 @@ function distance(a, b) {
 }
 
 // ============== SHIP ==============
-function createShip(id, x, y, color) {
+function createShip(id, x, y, color, name) {
     return {
         id: id,
         x: x || CONFIG.width / 2,
@@ -77,7 +136,8 @@ function createShip(id, x, y, color) {
         vy: 0,
         angle: -Math.PI / 2,
         color: color || randomColor(),
-        thrusting: false
+        thrusting: false,
+        name: name || 'Unknown'
     };
 }
 
@@ -108,6 +168,13 @@ function updateShip(ship, input) {
 function drawShip(ship) {
     ctx.save();
     ctx.translate(ship.x, ship.y);
+
+    // Draw name above ship
+    ctx.fillStyle = ship.color;
+    ctx.font = '12px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(ship.name, 0, -CONFIG.shipSize - 10);
+
     ctx.rotate(ship.angle);
 
     // Ship body
@@ -333,27 +400,7 @@ function setupHost() {
         connections.push(conn);
 
         conn.on('open', () => {
-            // Send current state to new player
-            const playerId = conn.peer;
-            ships[playerId] = createShip(playerId);
-
-            // Assign color based on player count
-            const colors = ['#4af', '#f4a', '#4fa', '#fa4', '#a4f', '#af4'];
-            ships[playerId].color = colors[Object.keys(ships).length % colors.length];
-
-            conn.send({
-                type: 'init',
-                playerId: playerId,
-                ships: ships,
-                rocks: rocks,
-                bullets: bullets,
-                gameRunning: gameRunning
-            });
-
-            updatePlayerCount();
-
-            // Notify other players
-            broadcastState();
+            console.log('Client connection opened, waiting for join message...');
         });
 
         conn.on('data', (data) => {
@@ -393,6 +440,13 @@ function setupClient(roomCode) {
         hostConnection.on('open', () => {
             console.log('Connected to host');
             document.getElementById('join-status').textContent = 'Connected! Waiting for game...';
+
+            // Send our info to host
+            hostConnection.send({
+                type: 'join',
+                name: myName,
+                userId: myUserId
+            });
         });
 
         hostConnection.on('data', (data) => {
@@ -422,7 +476,28 @@ function setupClient(roomCode) {
 }
 
 function handleClientMessage(clientId, data) {
-    if (data.type === 'input') {
+    if (data.type === 'join') {
+        // Create ship for new player with their name
+        const colors = ['#4af', '#f4a', '#4fa', '#fa4', '#a4f', '#af4'];
+        const color = colors[Object.keys(ships).length % colors.length];
+        ships[clientId] = createShip(clientId, null, null, color, data.name);
+
+        // Send current state to new player
+        const conn = connections.find(c => c.peer === clientId);
+        if (conn && conn.open) {
+            conn.send({
+                type: 'init',
+                playerId: clientId,
+                ships: ships,
+                rocks: rocks,
+                bullets: bullets,
+                gameRunning: gameRunning
+            });
+        }
+
+        updatePlayerCount();
+        broadcastState();
+    } else if (data.type === 'input') {
         // Apply client input to their ship
         if (ships[clientId]) {
             if (data.shooting && Date.now() - (ships[clientId].lastShot || 0) > 200) {
@@ -513,7 +588,7 @@ function startGame() {
     if (isHost) {
         // Create host ship if not exists
         if (!ships[myId]) {
-            ships[myId] = createShip(myId);
+            ships[myId] = createShip(myId, null, null, '#4af', myName);
         }
 
         // Spawn rocks
@@ -679,13 +754,32 @@ function setupTouchButton(btnId, key) {
 
 // ============== MENU SETUP ==============
 function setupMenu() {
+    // Pre-fill name input with stored name
+    const nameInput = document.getElementById('player-name');
+    const storedName = getDisplayName();
+    if (storedName) {
+        nameInput.value = storedName;
+    } else {
+        nameInput.placeholder = generateNickname();
+    }
+
     document.getElementById('host-btn').addEventListener('click', () => {
+        // Save name before hosting
+        const name = nameInput.value.trim() || nameInput.placeholder;
+        setDisplayName(name);
+        myName = name;
+
         document.getElementById('main-menu').classList.add('hidden');
         document.getElementById('host-menu').classList.remove('hidden');
         setupHost();
     });
 
     document.getElementById('join-btn').addEventListener('click', () => {
+        // Save name before joining
+        const name = nameInput.value.trim() || nameInput.placeholder;
+        setDisplayName(name);
+        myName = name;
+
         document.getElementById('main-menu').classList.add('hidden');
         document.getElementById('join-menu').classList.remove('hidden');
     });
@@ -725,6 +819,11 @@ function init() {
     canvas = document.getElementById('game');
     ctx = canvas.getContext('2d');
 
+    // Initialize user identity
+    myUserId = getOrCreateUserId();
+    myName = getPlayerName();
+    console.log('User ID:', myUserId, 'Name:', myName);
+
     setupMenu();
     setupInput();
 
@@ -732,7 +831,8 @@ function init() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('bot') === 'true') {
         isBot = true;
-        console.log('Bot mode enabled - auto-hosting...');
+        myName = 'Bot_' + generateNickname();
+        console.log('Bot mode enabled - auto-hosting as', myName);
 
         // Auto-start as host with bot
         document.getElementById('main-menu').classList.add('hidden');
