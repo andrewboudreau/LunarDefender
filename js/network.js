@@ -262,6 +262,7 @@ function handleClientMessage(clientId, data, ships) {
         const conn = connections.find(c => c.peer === clientId);
         if (conn && conn.open) {
             const isGameRunning = getGameRunning ? getGameRunning() : false;
+            console.log('Sending init to client, gameRunning:', isGameRunning, 'callback exists:', !!getGameRunning);
             conn.send({
                 type: 'init',
                 playerId: clientId,
@@ -305,10 +306,12 @@ function handleClientMessage(clientId, data, ships) {
 
 function handleHostMessage(data) {
     if (data.type === 'init') {
+        console.log('Client received init, gameRunning:', data.gameRunning, 'onGameStart exists:', !!onGameStart);
         if (onStateUpdate) {
             onStateUpdate(data.playerId, data.ships, data.rocks, data.bullets);
         }
         if (data.gameRunning && onGameStart) {
+            console.log('Calling onGameStart...');
             onGameStart();
         }
     } else if (data.type === 'state') {
