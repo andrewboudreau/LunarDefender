@@ -134,6 +134,83 @@ function mergeSessionIntoLifetime(session, lifetime) {
 let mySessionStats = null;
 let myLifetimeStats = null;
 
+// ============== EVENT SYSTEM ==============
+// Events are the unit of truth for stats - witnessable by all peers
+const GameEvents = {
+    ROCK_DESTROYED: 'rock_destroyed',
+    SHOT_FIRED: 'shot_fired',
+    THRUST_START: 'thrust_start',
+    THRUST_STOP: 'thrust_stop',
+    PLAYER_JOINED: 'player_joined',
+    PLAYER_LEFT: 'player_left'
+};
+
+let eventLog = []; // Host maintains event log
+let thrustStartTime = {}; // Track when each player started thrusting
+
+function createEvent(type, data) {
+    return {
+        type,
+        timestamp: Date.now(),
+        ...data
+    };
+}
+
+function logEvent(event) {
+    eventLog.push(event);
+    // Keep last 1000 events
+    if (eventLog.length > 1000) {
+        eventLog = eventLog.slice(-500);
+    }
+}
+
+function broadcastEvent(event) {
+    if (!isHost) return;
+
+    logEvent(event);
+
+    // Send to all clients
+    connections.forEach(conn => {
+        if (conn.open) {
+            conn.send({ type: 'event', event });
+        }
+    });
+}
+
+function handleGameEvent(event) {
+    logEvent(event);
+
+    // Update stats based on event
+    switch (event.type) {
+        case GameEvents.ROCK_DESTROYED:
+            if (ships[event.playerId]?.stats) {
+                ships[event.playerId].stats.rocksDestroyed++;
+            }
+            break;
+        case GameEvents.SHOT_FIRED:
+            if (ships[event.playerId]?.stats) {
+                ships[event.playerId].stats.shotsFired++;
+            }
+            break;
+    }
+}
+
+// Calculate fuel from thrust duration
+function calculateFuelUsed(playerId) {
+    const ship = ships[playerId];
+    if (!ship?.stats) return 0;
+
+    let fuel = ship.stats.fuelUsed || 0;
+
+    // Add current thrust session if active
+    if (thrustStartTime[playerId]) {
+        const duration = (Date.now() - thrustStartTime[playerId]) / 1000;
+        fuel += duration * CONFIG.fuelPerThrust * 60; // Convert to fuel units
+    }
+
+    return fuel;
+}
+
 function saveCurrentStats() {
     if (!gameRunning || !myId || !ships[myId]) return;
 
@@ -251,9 +328,6 @@ function updateShip(ship, input) {
     if (input.up) {
         ship.vx += Math.cos(ship.angle) * CONFIG.shipThrust;
         ship.vy += Math.sin(ship.angle) * CONFIG.shipThrust;
-
-        // Track fuel usage
-        if (ship.stats) ship.stats.fuelUsed += CONFIG.fuelPerThrust;
     }
 
     // Cap max speed
@@ -461,11 +535,12 @@ function checkCollisions() {
         for (let j = rocks.length - 1; j >= 0; j--) {
             const rock = rocks[j];
             if (distance(bullet, rock) < rock.radius) {
-                // Credit the player who fired this bullet
-                const shooter = ships[bullet.ownerId];
-                if (shooter && shooter.stats) {
-                    shooter.stats.rocksDestroyed++;
-                }
+                // Emit rock destroyed event
+                broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
+                    playerId: bullet.ownerId,
+                    rockId: rock.id,
+                    rockSize: rock.sizeIndex
+                }));
 
                 // Remove bullet
                 bullets.splice(i, 1);
@@ -619,7 +694,20 @@ function handleClientMessage(clientId, data) {
             if (data.shooting && Date.now() - (ships[clientId].lastShot || 0) > 200) {
                 bullets.push(createBullet(ships[clientId]));
                 ships[clientId].lastShot = Date.now();
-                if (ships[clientId].stats) ships[clientId].stats.shotsFired++;
+                broadcastEvent(createEvent(GameEvents.SHOT_FIRED, { playerId: clientId }));
+            }
+
+            // Track thrust start/stop
+            if (data.up && !thrustStartTime[clientId]) {
+                thrustStartTime[clientId] = Date.now();
+                broadcastEvent(createEvent(GameEvents.THRUST_START, { playerId: clientId }));
+            } else if (!data.up && thrustStartTime[clientId]) {
+                const duration = (Date.now() - thrustStartTime[clientId]) / 1000;
+                if (ships[clientId]?.stats) {
+                    ships[clientId].stats.fuelUsed += duration * CONFIG.fuelPerThrust * 60;
+                }
+                delete thrustStartTime[clientId];
+                broadcastEvent(createEvent(GameEvents.THRUST_STOP, { playerId: clientId }));
             }
             // Store input for physics update
             ships[clientId].input = data;
@@ -647,6 +735,9 @@ function handleHostMessage(data) {
         rocks = data.rocks;
         bullets = data.bullets;
         startGame();
+    } else if (data.type === 'event') {
+        // Handle game events from host
+        handleGameEvent(data.event);
     }
 }
 
@@ -771,6 +862,12 @@ function updateFullscreenButton() {
 function startGame() {
     gameRunning = true;
 
+    // Increment games played
+    if (myLifetimeStats) {
+        myLifetimeStats.gamesPlayed++;
+        saveLifetimeStats(myLifetimeStats);
+    }
+
     // Hide menu, show game
     document.getElementById('menu').classList.add('hidden');
     document.getElementById('game-wrapper').style.display = 'block';
@@ -833,8 +930,20 @@ function update() {
             if (input.space && Date.now() - lastShot > 200) {
                 bullets.push(createBullet(ships[myId]));
                 lastShot = Date.now();
-                if (ships[myId].stats) ships[myId].stats.shotsFired++;
+                broadcastEvent(createEvent(GameEvents.SHOT_FIRED, { playerId: myId }));
             }
+
+            // Track host's thrust
+            if (input.up && !thrustStartTime[myId]) {
+                thrustStartTime[myId] = Date.now();
+            } else if (!input.up && thrustStartTime[myId]) {
+                const duration = (Date.now() - thrustStartTime[myId]) / 1000;
+                if (ships[myId]?.stats) {
+                    ships[myId].stats.fuelUsed += duration * CONFIG.fuelPerThrust * 60;
+                }
+                delete thrustStartTime[myId];
+            }
+
             updateShip(ships[myId], input);
         }
 
@@ -905,6 +1014,17 @@ function updateHUD() {
     }
 }
 
+function updateMenuStats() {
+    if (myLifetimeStats) {
+        const rocksEl = document.getElementById('stat-rocks');
+        const shotsEl = document.getElementById('stat-shots');
+        const gamesEl = document.getElementById('stat-games');
+        if (rocksEl) rocksEl.textContent = myLifetimeStats.rocksDestroyed || 0;
+        if (shotsEl) shotsEl.textContent = myLifetimeStats.shotsFired || 0;
+        if (gamesEl) gamesEl.textContent = myLifetimeStats.gamesPlayed || 0;
+    }
+}
+
 // ============== INPUT HANDLING ==============
 function setupInput() {
     // Keyboard controls
@@ -968,6 +1088,22 @@ function setupMenu() {
     } else {
         nameInput.placeholder = generateNickname();
     }
+
+    // Display lifetime stats
+    updateMenuStats();
+
+    // Save name on change (with debounce)
+    let nameTimeout;
+    nameInput.addEventListener('input', () => {
+        clearTimeout(nameTimeout);
+        nameTimeout = setTimeout(() => {
+            const name = nameInput.value.trim();
+            if (name) {
+                setDisplayName(name);
+                myName = name;
+            }
+        }, 500);
+    });
 
     document.getElementById('host-btn').addEventListener('click', () => {
         // Save name before hosting

@@ -26,10 +26,12 @@
         #menu {
             text-align: center;
             padding: 20px;
+            width: 100%;
+            max-width: 400px;
         }
         #menu h1 {
-            font-size: 2.5em;
-            margin-bottom: 20px;
+            font-size: 2em;
+            margin-bottom: 10px;
             color: #4af;
             text-shadow: 0 0 10px #4af;
         }
@@ -37,14 +39,16 @@
             background: #224;
             color: #4af;
             border: 2px solid #4af;
-            padding: 15px 30px;
-            margin: 10px;
-            font-size: 1.2em;
+            padding: 12px 24px;
+            margin: 8px;
+            font-size: 1.1em;
             cursor: pointer;
             font-family: inherit;
             transition: all 0.2s;
+            min-width: 140px;
+            touch-action: manipulation;
         }
-        #menu button:hover {
+        #menu button:hover, #menu button:active {
             background: #4af;
             color: #000;
         }
@@ -52,11 +56,51 @@
             background: #112;
             color: #fff;
             border: 2px solid #4af;
-            padding: 15px;
-            font-size: 1.2em;
+            padding: 12px;
+            font-size: 1.1em;
             text-align: center;
             font-family: inherit;
-            width: 200px;
+            width: 100%;
+            max-width: 250px;
+            touch-action: manipulation;
+        }
+        #menu input:focus {
+            outline: none;
+            border-color: #6cf;
+            box-shadow: 0 0 10px rgba(68, 170, 255, 0.5);
+        }
+        .menu-section {
+            margin: 15px 0;
+            padding: 15px;
+            background: rgba(68, 170, 255, 0.1);
+            border-radius: 8px;
+        }
+        .menu-section label {
+            display: block;
+            color: #4af;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+        .stats-display {
+            font-size: 0.85em;
+            color: #888;
+            margin-top: 10px;
+        }
+        .stats-display span {
+            color: #4af;
+        }
+        @media (max-width: 500px) {
+            #menu h1 { font-size: 1.6em; }
+            #menu { padding: 15px; }
+            #menu button {
+                width: 100%;
+                max-width: 250px;
+                padding: 14px 20px;
+            }
+            #menu input {
+                width: 100%;
+                max-width: 250px;
+            }
         }
         #room-code {
             font-size: 2em;
@@ -223,11 +267,17 @@
             <p style="color: #888; margin-bottom: 30px;">Co-op Space Rocks</p>
 
             <div id="main-menu">
-                <p style="color: #4af; margin-bottom: 10px;">Your name:</p>
-                <input type="text" id="player-name" maxlength="20" placeholder="Enter name...">
-                <br><br>
+                <div class="menu-section">
+                    <label for="player-name">YOUR NAME</label>
+                    <input type="text" id="player-name" maxlength="20" placeholder="Enter name...">
+                    <div class="stats-display" id="lifetime-stats">
+                        Rocks: <span id="stat-rocks">0</span> |
+                        Shots: <span id="stat-shots">0</span> |
+                        Games: <span id="stat-games">0</span>
+                    </div>
+                </div>
+
                 <button id="host-btn">HOST GAME</button>
-                <br>
                 <button id="join-btn">JOIN GAME</button>
             </div>
 
