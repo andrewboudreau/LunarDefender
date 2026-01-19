@@ -56,6 +56,7 @@ export function setGameState(state) {
             const myOldShip = ships[myId];
             const localMiningState = {
                 nearRock: myOldShip.nearRock,
+                nearRockId: myOldShip.nearRockId,
                 miningCountdown: myOldShip.miningCountdown,
                 miningReady: myOldShip.miningReady
             };
@@ -63,6 +64,7 @@ export function setGameState(state) {
             // Restore local mining state
             if (ships[myId]) {
                 ships[myId].nearRock = localMiningState.nearRock;
+                ships[myId].nearRockId = localMiningState.nearRockId;
                 ships[myId].miningCountdown = localMiningState.miningCountdown;
                 ships[myId].miningReady = localMiningState.miningReady;
             }
