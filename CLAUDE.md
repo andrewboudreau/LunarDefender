@@ -56,6 +56,22 @@ Lunar Defender is a 2D co-op asteroid game with WebRTC peer-to-peer multiplayer.
 - Display name stored in `lunar_display_name`
 - Auto-generated nicknames if no name set
 
+### Stats System
+```
+Session Stats (per ship)     Lifetime Stats (localStorage)
+├── rocksDestroyed          ├── rocksDestroyed
+├── shotsFired              ├── shotsFired
+├── fuelUsed                ├── fuelUsed
+├── deaths                  ├── deaths
+└── sessionStart            ├── gamesPlayed
+                            ├── timePlayed
+                            └── lastPlayed
+```
+
+- Stats tracked on host (authoritative)
+- Auto-saved to localStorage every 30s and on page unload
+- Delta-based saving prevents double-counting
+
 ## URL Parameters
 
 - `?bot=true` - Auto-host with AI bot player
