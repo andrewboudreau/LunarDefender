@@ -85,24 +85,55 @@ function ensureAudio() {
     }
 }
 
-// Shoot sound - quick "pew"
+// Shoot sound - soft ambient "pew"
 function playShoot() {
     ensureAudio();
+    const t = audioCtx.currentTime;
+
+    // Soft tone - lower frequency, triangle wave for warmth
     const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
+    const oscGain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(320, t);
+    osc.frequency.exponentialRampToValueAtTime(120, t + 0.12);
+    oscGain.gain.setValueAtTime(0.15, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.01, t + 0.12);
 
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.1);
+    // Low-pass filter to remove harshness
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 800;
 
-    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+    osc.connect(filter);
+    filter.connect(oscGain);
+    oscGain.connect(masterGain);
+    osc.start(t);
+    osc.stop(t + 0.12);
 
-    osc.connect(gain);
-    gain.connect(masterGain);
+    // Soft noise puff for texture
+    const bufferSize = Math.floor(audioCtx.sampleRate * 0.08);
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        const env = Math.pow(1 - i / bufferSize, 2);
+        data[i] = (Math.random() * 2 - 1) * env * 0.3;
+    }
 
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.1);
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+
+    const noiseFilter = audioCtx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = 400;
+    noiseFilter.Q.value = 1;
+
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.value = 0.12;
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(masterGain);
+    noise.start(t);
 }
 
 // Ice crack / shredded wheat breaking sound
