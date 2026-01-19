@@ -264,7 +264,7 @@ export function renderLander(ctx) {
         ctx.fillText(`+ ${L.reward.name}`, CONFIG.width / 2, CONFIG.height / 2);
         ctx.fillStyle = '#888';
         ctx.font = '16px "Courier New", monospace';
-        ctx.fillText('Press SPACE to continue', CONFIG.width / 2, CONFIG.height / 2 + 40);
+        ctx.fillText('SPACE or tap FIRE to continue', CONFIG.width / 2, CONFIG.height / 2 + 40);
         ctx.textAlign = 'left';
     } else if (L.status === 'crashed') {
         ctx.fillStyle = '#f44';
@@ -273,7 +273,7 @@ export function renderLander(ctx) {
         ctx.fillText('CRASHED!', CONFIG.width / 2, CONFIG.height / 2 - 20);
         ctx.fillStyle = '#888';
         ctx.font = '16px "Courier New", monospace';
-        ctx.fillText('Press SPACE to continue', CONFIG.width / 2, CONFIG.height / 2 + 20);
+        ctx.fillText('SPACE or tap FIRE to continue', CONFIG.width / 2, CONFIG.height / 2 + 20);
         ctx.textAlign = 'left';
     } else {
         // Instructions

@@ -72,6 +72,17 @@ function setupTouchButton(btnId, key) {
         e.preventDefault();
         keys[key] = true;
         btn.classList.add('active');
+
+        // Handle lander exit on fire button press
+        if (key === 'space') {
+            const landerState = getLanderState();
+            if (landerState && landerState.status !== 'active') {
+                const success = landerState.status === 'landed';
+                if (exitMiningCallback) {
+                    exitMiningCallback(success, landerState.reward);
+                }
+            }
+        }
     };
 
     const deactivate = (e) => {
