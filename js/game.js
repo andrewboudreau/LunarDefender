@@ -50,7 +50,26 @@ export function getGameState() {
 }
 
 export function setGameState(state) {
-    if (state.ships !== undefined) ships = state.ships;
+    if (state.ships !== undefined) {
+        // Preserve local mining state for my ship when receiving updates
+        if (myId && ships[myId]) {
+            const myOldShip = ships[myId];
+            const localMiningState = {
+                nearRock: myOldShip.nearRock,
+                miningCountdown: myOldShip.miningCountdown,
+                miningReady: myOldShip.miningReady
+            };
+            ships = state.ships;
+            // Restore local mining state
+            if (ships[myId]) {
+                ships[myId].nearRock = localMiningState.nearRock;
+                ships[myId].miningCountdown = localMiningState.miningCountdown;
+                ships[myId].miningReady = localMiningState.miningReady;
+            }
+        } else {
+            ships = state.ships;
+        }
+    }
     if (state.rocks !== undefined) rocks = state.rocks;
     if (state.bullets !== undefined) bullets = state.bullets;
     if (state.missiles !== undefined) missiles = state.missiles;
@@ -442,9 +461,13 @@ export function update() {
     const keys = getKeys();
 
     // Check if we're in mining mode (lunar lander)
-    if (myShip && myShip.state === PlayerState.MINING) {
+    const inMiningMode = myShip && myShip.state === PlayerState.MINING;
+    if (inMiningMode) {
         updateLander(keys);
-        return;
+        // Don't return early if host - need to keep updating game for other players
+        if (!isHost) {
+            return;
+        }
     }
 
     if (isHost) {

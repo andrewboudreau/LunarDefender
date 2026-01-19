@@ -139,7 +139,6 @@ export function setupHost(myName, myUserId, ships, onReady) {
         });
 
         conn.on('data', (data) => {
-            console.log('Host received data from client:', data.type, data);
             handleClientMessage(conn.peer, data, ships);
         });
 
@@ -198,21 +197,14 @@ export function setupClient(roomCode, myName, myUserId, onReady) {
 
         hostConnection.on('open', () => {
             console.log('Connected to host');
-            document.getElementById('join-status').textContent = 'Connected! Sending join...';
+            document.getElementById('join-status').textContent = 'Connected! Waiting for game...';
 
             // Send our info to host
-            try {
-                hostConnection.send({
-                    type: 'join',
-                    name: myName,
-                    userId: myUserId
-                });
-                document.getElementById('join-status').textContent = 'Join sent! Waiting for game...';
-                console.log('Join message sent successfully');
-            } catch (err) {
-                console.error('Failed to send join:', err);
-                document.getElementById('join-status').textContent = 'Error sending join: ' + err.message;
-            }
+            hostConnection.send({
+                type: 'join',
+                name: myName,
+                userId: myUserId
+            });
 
             if (onReady) onReady(id);
         });
@@ -270,7 +262,6 @@ function handleClientMessage(clientId, data, ships) {
         const conn = connections.find(c => c.peer === clientId);
         if (conn && conn.open) {
             const isGameRunning = getGameRunning ? getGameRunning() : false;
-            console.log('Sending init to client, gameRunning:', isGameRunning, 'callback exists:', !!getGameRunning);
             conn.send({
                 type: 'init',
                 playerId: clientId,
@@ -314,12 +305,10 @@ function handleClientMessage(clientId, data, ships) {
 
 function handleHostMessage(data) {
     if (data.type === 'init') {
-        console.log('Client received init, gameRunning:', data.gameRunning, 'onGameStart exists:', !!onGameStart);
         if (onStateUpdate) {
             onStateUpdate(data.playerId, data.ships, data.rocks, data.bullets);
         }
         if (data.gameRunning && onGameStart) {
-            console.log('Calling onGameStart...');
             onGameStart();
         }
     } else if (data.type === 'state') {
