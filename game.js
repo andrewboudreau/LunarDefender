@@ -373,25 +373,44 @@ function spawnExplosionParticles(x, y, count, color, speed) {
 }
 
 function spawnThrustParticle(ship) {
-    if (!ship || Math.random() > 0.4) return;
+    if (!ship || Math.random() > 0.5) return;
 
     const backX = ship.x - Math.cos(ship.angle) * CONFIG.shipSize * 0.5;
     const backY = ship.y - Math.sin(ship.angle) * CONFIG.shipSize * 0.5;
 
     // Add some spread
-    const spread = (Math.random() - 0.5) * 0.5;
+    const spread = (Math.random() - 0.5) * 0.6;
     const angle = ship.angle + Math.PI + spread;
-    const vel = 2 + Math.random() * 2;
+    const vel = 2 + Math.random() * 2.5;
 
-    particles.push(createParticle(
-        backX + (Math.random() - 0.5) * 6,
-        backY + (Math.random() - 0.5) * 6,
-        Math.cos(angle) * vel + ship.vx * 0.5,
-        Math.sin(angle) * vel + ship.vy * 0.5,
-        Math.random() > 0.5 ? '#f80' : '#fa0',
-        15 + Math.random() * 15,
-        1 + Math.random() * 2
-    ));
+    const isHot = Math.random() > 0.6;
+
+    particles.push({
+        x: backX + (Math.random() - 0.5) * 8,
+        y: backY + (Math.random() - 0.5) * 8,
+        vx: Math.cos(angle) * vel + ship.vx * 0.5,
+        vy: Math.sin(angle) * vel + ship.vy * 0.5,
+        color: isHot ? '#ff8' : (Math.random() > 0.5 ? '#f80' : '#f60'),
+        life: 12 + Math.random() * 18,
+        maxLife: 30,
+        size: 1.5 + Math.random() * 2,
+        glow: isHot
+    });
+
+    // Occasional bright spark
+    if (Math.random() > 0.85) {
+        particles.push({
+            x: backX,
+            y: backY,
+            vx: Math.cos(angle) * vel * 1.5 + ship.vx * 0.3,
+            vy: Math.sin(angle) * vel * 1.5 + ship.vy * 0.3,
+            color: '#fff',
+            life: 8,
+            maxLife: 8,
+            size: 2,
+            glow: true
+        });
+    }
 }
 
 function updateParticles() {
@@ -413,10 +432,150 @@ function renderParticles() {
     for (const p of particles) {
         const alpha = p.life / p.maxLife;
         ctx.globalAlpha = alpha;
+
+        // Glow effect for bright particles
+        if (p.glow) {
+            ctx.shadowColor = p.color;
+            ctx.shadowBlur = p.size * 3;
+        }
+
         ctx.fillStyle = p.color;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.size * (0.3 + alpha * 0.7), 0, Math.PI * 2);
         ctx.fill();
+
+        ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
+}
+
+// ============== STARFIELD SYSTEM ==============
+let stars = [];
+let nebulas = [];
+
+function initStarfield() {
+    stars = [];
+    nebulas = [];
+
+    // Layer 1: Distant static stars (tiny, dim)
+    for (let i = 0; i < 150; i++) {
+        stars.push({
+            x: Math.random() * CONFIG.width,
+            y: Math.random() * CONFIG.height,
+            size: 0.5 + Math.random() * 0.5,
+            brightness: 0.2 + Math.random() * 0.3,
+            speed: 0,
+            twinkle: Math.random() * Math.PI * 2,
+            twinkleSpeed: 0.02 + Math.random() * 0.03
+        });
+    }
+
+    // Layer 2: Mid-distance stars (slow drift)
+    for (let i = 0; i < 80; i++) {
+        stars.push({
+            x: Math.random() * CONFIG.width,
+            y: Math.random() * CONFIG.height,
+            size: 0.8 + Math.random() * 1,
+            brightness: 0.4 + Math.random() * 0.3,
+            speed: 0.1 + Math.random() * 0.2,
+            twinkle: Math.random() * Math.PI * 2,
+            twinkleSpeed: 0.01 + Math.random() * 0.02,
+            color: Math.random() > 0.8 ? '#aaf' : (Math.random() > 0.5 ? '#ffa' : '#fff')
+        });
+    }
+
+    // Layer 3: Closer stars (more drift, brighter)
+    for (let i = 0; i < 30; i++) {
+        stars.push({
+            x: Math.random() * CONFIG.width,
+            y: Math.random() * CONFIG.height,
+            size: 1.5 + Math.random() * 1.5,
+            brightness: 0.6 + Math.random() * 0.4,
+            speed: 0.3 + Math.random() * 0.3,
+            twinkle: Math.random() * Math.PI * 2,
+            twinkleSpeed: 0.005 + Math.random() * 0.01,
+            glow: true,
+            color: Math.random() > 0.7 ? '#8af' : (Math.random() > 0.5 ? '#fa8' : '#fff')
+        });
+    }
+
+    // Nebulas - large color clouds
+    const nebulaColors = [
+        { r: 60, g: 20, b: 80 },   // Purple
+        { r: 20, g: 40, b: 80 },   // Blue
+        { r: 80, g: 30, b: 50 },   // Magenta
+        { r: 20, g: 60, b: 60 },   // Teal
+        { r: 50, g: 20, b: 30 }    // Dark red
+    ];
+
+    for (let i = 0; i < 4; i++) {
+        const color = nebulaColors[Math.floor(Math.random() * nebulaColors.length)];
+        nebulas.push({
+            x: Math.random() * CONFIG.width,
+            y: Math.random() * CONFIG.height,
+            radius: 150 + Math.random() * 250,
+            color: color,
+            opacity: 0.03 + Math.random() * 0.04,
+            drift: { x: (Math.random() - 0.5) * 0.05, y: (Math.random() - 0.5) * 0.05 }
+        });
+    }
+}
+
+function updateStarfield() {
+    // Update star positions (parallax)
+    for (const star of stars) {
+        if (star.speed > 0) {
+            star.x -= star.speed;
+            if (star.x < 0) star.x = CONFIG.width;
+        }
+        star.twinkle += star.twinkleSpeed;
+    }
+
+    // Drift nebulas slowly
+    for (const neb of nebulas) {
+        neb.x += neb.drift.x;
+        neb.y += neb.drift.y;
+        // Wrap around
+        if (neb.x < -neb.radius) neb.x = CONFIG.width + neb.radius;
+        if (neb.x > CONFIG.width + neb.radius) neb.x = -neb.radius;
+        if (neb.y < -neb.radius) neb.y = CONFIG.height + neb.radius;
+        if (neb.y > CONFIG.height + neb.radius) neb.y = -neb.radius;
+    }
+}
+
+function renderStarfield() {
+    // Draw nebulas first (behind everything)
+    for (const neb of nebulas) {
+        const gradient = ctx.createRadialGradient(
+            neb.x, neb.y, 0,
+            neb.x, neb.y, neb.radius
+        );
+        gradient.addColorStop(0, `rgba(${neb.color.r}, ${neb.color.g}, ${neb.color.b}, ${neb.opacity})`);
+        gradient.addColorStop(0.5, `rgba(${neb.color.r}, ${neb.color.g}, ${neb.color.b}, ${neb.opacity * 0.5})`);
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(neb.x, neb.y, neb.radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Draw stars
+    for (const star of stars) {
+        const twinkleBrightness = star.brightness * (0.7 + 0.3 * Math.sin(star.twinkle));
+        ctx.globalAlpha = twinkleBrightness;
+
+        if (star.glow) {
+            ctx.shadowColor = star.color || '#fff';
+            ctx.shadowBlur = star.size * 4;
+        }
+
+        ctx.fillStyle = star.color || '#fff';
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
     }
     ctx.globalAlpha = 1;
 }
@@ -928,14 +1087,34 @@ function drawRock(rock) {
     ctx.translate(rock.x, rock.y);
     ctx.rotate(rock.rotation);
 
-    ctx.strokeStyle = '#888';
-    ctx.lineWidth = 2;
+    // Outer glow
+    ctx.shadowColor = rock.glowColor || '#446';
+    ctx.shadowBlur = 15 + rock.radius * 0.3;
+
+    // Fill with dark gradient
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, rock.radius);
+    gradient.addColorStop(0, '#3a3a4a');
+    gradient.addColorStop(0.7, '#252530');
+    gradient.addColorStop(1, '#1a1a22');
+
+    ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.moveTo(rock.vertices[0].x, rock.vertices[0].y);
     for (let i = 1; i < rock.vertices.length; i++) {
         ctx.lineTo(rock.vertices[i].x, rock.vertices[i].y);
     }
     ctx.closePath();
+    ctx.fill();
+
+    // Edge highlight
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#667';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Inner edge glow
+    ctx.strokeStyle = 'rgba(100, 120, 140, 0.3)';
+    ctx.lineWidth = 1;
     ctx.stroke();
 
     ctx.restore();
@@ -1448,12 +1627,37 @@ function checkCollisions() {
                 playExplosion(rockSize);
 
                 // Spawn explosion particles
-                const particleCount = (3 - rockSize) * 8 + 5; // More particles for bigger rocks
-                const colors = ['#888', '#aaa', '#666', '#fff'];
+                const particleCount = (3 - rockSize) * 12 + 8; // More particles for bigger rocks
                 for (let p = 0; p < particleCount; p++) {
-                    const color = colors[Math.floor(Math.random() * colors.length)];
-                    spawnExplosionParticles(rockX, rockY, 1, color, 2 + (2 - rockSize));
+                    const angle = (p / particleCount) * Math.PI * 2 + Math.random() * 0.5;
+                    const speed = (2 + (2 - rockSize)) * (0.3 + Math.random() * 0.7);
+                    const isGlowing = Math.random() > 0.7;
+
+                    particles.push({
+                        x: rockX + (Math.random() - 0.5) * 15,
+                        y: rockY + (Math.random() - 0.5) * 15,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        color: isGlowing ? '#fa8' : (Math.random() > 0.5 ? '#888' : '#666'),
+                        life: 25 + Math.random() * 35,
+                        maxLife: 60,
+                        size: 1 + Math.random() * (3 - rockSize),
+                        glow: isGlowing
+                    });
                 }
+
+                // Central flash
+                particles.push({
+                    x: rockX,
+                    y: rockY,
+                    vx: 0,
+                    vy: 0,
+                    color: '#fff',
+                    life: 8,
+                    maxLife: 8,
+                    size: 10 + (2 - rockSize) * 5,
+                    glow: true
+                });
 
                 // Explosive chain reaction - damage nearby rocks
                 if (isExplosive) {
@@ -1483,6 +1687,157 @@ function checkCollisions() {
             }
         }
     }
+
+    // Rock vs Rock collisions
+    checkRockCollisions();
+}
+
+function checkRockCollisions() {
+    const energyLoss = 0.95; // 5% energy lost to "heat"
+
+    for (let i = 0; i < rocks.length; i++) {
+        for (let j = i + 1; j < rocks.length; j++) {
+            const r1 = rocks[i];
+            const r2 = rocks[j];
+
+            const dist = distance(r1, r2);
+            const minDist = r1.radius + r2.radius;
+
+            if (dist < minDist && dist > 0) {
+                // Collision detected!
+                // Calculate collision normal
+                const nx = (r2.x - r1.x) / dist;
+                const ny = (r2.y - r1.y) / dist;
+
+                // Relative velocity
+                const dvx = r1.vx - r2.vx;
+                const dvy = r1.vy - r2.vy;
+
+                // Relative velocity along collision normal
+                const dvn = dvx * nx + dvy * ny;
+
+                // Only resolve if rocks are approaching
+                if (dvn > 0) {
+                    // Mass proportional to radius squared (area)
+                    const m1 = r1.radius * r1.radius;
+                    const m2 = r2.radius * r2.radius;
+                    const totalMass = m1 + m2;
+
+                    // Impulse scalar (momentum conservation)
+                    const impulse = (2 * dvn) / totalMass;
+
+                    // Apply impulse with energy loss
+                    r1.vx -= (impulse * m2 * nx) * energyLoss;
+                    r1.vy -= (impulse * m2 * ny) * energyLoss;
+                    r2.vx += (impulse * m1 * nx) * energyLoss;
+                    r2.vy += (impulse * m1 * ny) * energyLoss;
+
+                    // Separate rocks to prevent overlap
+                    const overlap = minDist - dist;
+                    const separationRatio1 = m2 / totalMass;
+                    const separationRatio2 = m1 / totalMass;
+                    r1.x -= overlap * nx * separationRatio1;
+                    r1.y -= overlap * ny * separationRatio1;
+                    r2.x += overlap * nx * separationRatio2;
+                    r2.y += overlap * ny * separationRatio2;
+
+                    // Spawn impact particles at collision point
+                    const impactX = r1.x + nx * r1.radius;
+                    const impactY = r1.y + ny * r1.radius;
+                    const impactSpeed = Math.abs(dvn);
+
+                    spawnRockCollisionParticles(impactX, impactY, impactSpeed, nx, ny);
+
+                    // Flash glow on rocks
+                    r1.glowColor = '#864';
+                    r2.glowColor = '#864';
+                    setTimeout(() => {
+                        if (r1) r1.glowColor = null;
+                        if (r2) r2.glowColor = null;
+                    }, 100);
+
+                    // Play subtle collision sound based on impact speed
+                    if (impactSpeed > 0.5) {
+                        playRockCollision(impactSpeed);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Rock collision particles - sparks and debris
+function spawnRockCollisionParticles(x, y, speed, nx, ny) {
+    const count = Math.min(15, Math.floor(speed * 5) + 3);
+
+    for (let i = 0; i < count; i++) {
+        // Sparks perpendicular to collision
+        const perpAngle = Math.atan2(ny, nx) + (Math.random() - 0.5) * Math.PI;
+        const vel = (0.5 + Math.random()) * speed * 0.8;
+
+        particles.push({
+            x: x + (Math.random() - 0.5) * 8,
+            y: y + (Math.random() - 0.5) * 8,
+            vx: Math.cos(perpAngle) * vel,
+            vy: Math.sin(perpAngle) * vel,
+            color: Math.random() > 0.6 ? '#fa8' : (Math.random() > 0.5 ? '#864' : '#654'),
+            life: 15 + Math.random() * 20,
+            maxLife: 35,
+            size: 1 + Math.random() * 2,
+            glow: Math.random() > 0.5
+        });
+    }
+
+    // Heat glow particle at impact point
+    particles.push({
+        x: x,
+        y: y,
+        vx: 0,
+        vy: 0,
+        color: '#f84',
+        life: 10,
+        maxLife: 10,
+        size: 5 + speed * 2,
+        glow: true
+    });
+}
+
+// Subtle rock collision sound
+function playRockCollision(speed) {
+    ensureAudio();
+    const t = audioCtx.currentTime;
+
+    // Low thud based on impact speed
+    const thud = audioCtx.createOscillator();
+    const thudGain = audioCtx.createGain();
+    thud.type = 'sine';
+    thud.frequency.setValueAtTime(50 + speed * 20, t);
+    thud.frequency.exponentialRampToValueAtTime(25, t + 0.08);
+    thudGain.gain.setValueAtTime(Math.min(0.2, speed * 0.1), t);
+    thudGain.gain.exponentialRampToValueAtTime(0.01, t + 0.08);
+    thud.connect(thudGain);
+    thudGain.connect(masterGain);
+    thud.start(t);
+    thud.stop(t + 0.08);
+
+    // Gritty texture
+    const noiseSize = Math.floor(audioCtx.sampleRate * 0.04);
+    const buffer = audioCtx.createBuffer(1, noiseSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < noiseSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / noiseSize, 2);
+    }
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const noiseFilter = audioCtx.createBiquadFilter();
+    noiseFilter.type = 'lowpass';
+    noiseFilter.frequency.value = 300;
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.value = Math.min(0.15, speed * 0.08);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(masterGain);
+    noise.start(t);
 }
 
 // ============== NETWORKING ==============
@@ -1778,6 +2133,9 @@ function updateFullscreenButton() {
 function startGame() {
     gameRunning = true;
 
+    // Initialize starfield
+    initStarfield();
+
     // Increment games played
     if (myLifetimeStats) {
         myLifetimeStats.gamesPlayed++;
@@ -1915,6 +2273,9 @@ function update() {
 
         // Update particles
         updateParticles();
+
+        // Update starfield
+        updateStarfield();
     } else {
         // Client: check for mining
         if (myShip && myShip.state === PlayerState.FLYING) {
@@ -1935,6 +2296,9 @@ function update() {
 
         // Update particles on client too
         updateParticles();
+
+        // Update starfield on client too
+        updateStarfield();
     }
 
     updateHUD();
@@ -1983,13 +2347,8 @@ function render() {
     ctx.fillStyle = '#0a0a1a';
     ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
 
-    // Draw stars (background)
-    ctx.fillStyle = '#333';
-    for (let i = 0; i < 100; i++) {
-        const x = (i * 137) % CONFIG.width;
-        const y = (i * 251) % CONFIG.height;
-        ctx.fillRect(x, y, 1, 1);
-    }
+    // Draw starfield and nebulas
+    renderStarfield();
 
     // Draw rocks (highlight mineable ones)
     rocks.forEach(rock => {
