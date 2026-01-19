@@ -460,6 +460,7 @@ function startGame() {
     canvas.style.display = 'block';
     document.getElementById('hud').style.display = 'block';
     document.getElementById('controls-help').classList.remove('hidden');
+    document.getElementById('touch-controls').classList.remove('hidden');
 
     // Size canvas
     canvas.width = CONFIG.width;
@@ -580,6 +581,7 @@ function updateHUD() {
 
 // ============== INPUT HANDLING ==============
 function setupInput() {
+    // Keyboard controls
     document.addEventListener('keydown', (e) => {
         if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
         if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
@@ -596,6 +598,38 @@ function setupInput() {
         if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = false;
         if (e.code === 'Space') keys.space = false;
     });
+
+    // Touch controls
+    setupTouchButton('left-btn', 'left');
+    setupTouchButton('right-btn', 'right');
+    setupTouchButton('thrust-btn', 'up');
+    setupTouchButton('fire-btn', 'space');
+}
+
+function setupTouchButton(btnId, key) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+
+    const activate = (e) => {
+        e.preventDefault();
+        keys[key] = true;
+        btn.classList.add('active');
+    };
+
+    const deactivate = (e) => {
+        e.preventDefault();
+        keys[key] = false;
+        btn.classList.remove('active');
+    };
+
+    btn.addEventListener('touchstart', activate, { passive: false });
+    btn.addEventListener('touchend', deactivate, { passive: false });
+    btn.addEventListener('touchcancel', deactivate, { passive: false });
+
+    // Also support mouse for testing
+    btn.addEventListener('mousedown', activate);
+    btn.addEventListener('mouseup', deactivate);
+    btn.addEventListener('mouseleave', deactivate);
 }
 
 // ============== MENU SETUP ==============

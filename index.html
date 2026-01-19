@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
     <title>Lunar Defender - Co-op Space Rocks</title>
     <style>
         * {
@@ -92,6 +92,72 @@
             color: #666;
         }
         .hidden { display: none !important; }
+
+        /* Mobile touch controls */
+        #touch-controls {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 15px;
+            justify-content: space-between;
+            pointer-events: none;
+        }
+        .touch-btn {
+            width: 70px;
+            height: 70px;
+            background: rgba(68, 170, 255, 0.3);
+            border: 2px solid #4af;
+            border-radius: 50%;
+            color: #4af;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+        .touch-btn:active, .touch-btn.active {
+            background: rgba(68, 170, 255, 0.6);
+        }
+        .touch-left {
+            display: flex;
+            gap: 10px;
+        }
+        .touch-right {
+            display: flex;
+            gap: 10px;
+        }
+        #thrust-btn {
+            background: rgba(255, 136, 0, 0.3);
+            border-color: #f80;
+            color: #f80;
+        }
+        #fire-btn {
+            background: rgba(255, 68, 68, 0.3);
+            border-color: #f44;
+            color: #f44;
+        }
+
+        @media (max-width: 900px) {
+            canvas {
+                width: 100vw !important;
+                height: auto !important;
+                max-height: 60vh;
+            }
+            #touch-controls {
+                display: flex;
+            }
+            #controls-help {
+                display: none !important;
+            }
+            #hud {
+                font-size: 1em;
+            }
+        }
     </style>
 </head>
 <body>
@@ -134,6 +200,16 @@
         </div>
         <div id="controls-help" class="hidden">
             ← → Rotate | ↑ Thrust | SPACE Shoot
+        </div>
+        <div id="touch-controls" class="hidden">
+            <div class="touch-left">
+                <button class="touch-btn" id="left-btn">◀</button>
+                <button class="touch-btn" id="right-btn">▶</button>
+            </div>
+            <div class="touch-right">
+                <button class="touch-btn" id="thrust-btn">▲</button>
+                <button class="touch-btn" id="fire-btn">●</button>
+            </div>
         </div>
     </div>
 
