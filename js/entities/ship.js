@@ -24,8 +24,8 @@ export function randomColor() {
 export function createShip(id, x, y, color, name) {
     return {
         id: id,
-        x: x || CONFIG.width / 2,
-        y: y || CONFIG.height / 2,
+        x: x || CONFIG.worldWidth / 2,
+        y: y || CONFIG.worldHeight / 2,
         vx: 0,
         vy: 0,
         angle: -Math.PI / 2,
@@ -145,8 +145,9 @@ export function drawMiningShipOnRock(ctx, ship, rock) {
 }
 
 function wrapPosition(obj) {
-    if (obj.x < 0) obj.x = CONFIG.width;
-    if (obj.x > CONFIG.width) obj.x = 0;
-    if (obj.y < 0) obj.y = CONFIG.height;
-    if (obj.y > CONFIG.height) obj.y = 0;
+    // Wrap in world coordinates
+    if (obj.x < 0) obj.x += CONFIG.worldWidth;
+    if (obj.x >= CONFIG.worldWidth) obj.x -= CONFIG.worldWidth;
+    if (obj.y < 0) obj.y += CONFIG.worldHeight;
+    if (obj.y >= CONFIG.worldHeight) obj.y -= CONFIG.worldHeight;
 }

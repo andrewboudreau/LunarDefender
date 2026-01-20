@@ -2,18 +2,18 @@
 // Lunar Defender - Bot AI
 // ===========================================
 
+import { wrappedDistance, wrappedDirection } from './camera.js';
+
 export function getBotInput(ship, rocks) {
     if (!ship || rocks.length === 0) {
         return { left: false, right: false, up: false, space: false };
     }
 
-    const distance = (a, b) => Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
-
-    // Find nearest rock
+    // Find nearest rock (using wrapped distance for toroidal world)
     let nearestRock = null;
     let nearestDist = Infinity;
     for (const rock of rocks) {
-        const d = distance(ship, rock);
+        const d = wrappedDistance(ship, rock);
         if (d < nearestDist) {
             nearestDist = d;
             nearestRock = rock;
@@ -24,11 +24,9 @@ export function getBotInput(ship, rocks) {
         return { left: false, right: false, up: false, space: false };
     }
 
-    // Calculate angle to rock
-    const targetAngle = Math.atan2(
-        nearestRock.y - ship.y,
-        nearestRock.x - ship.x
-    );
+    // Calculate angle to rock using wrapped direction
+    const dir = wrappedDirection(ship, nearestRock);
+    const targetAngle = Math.atan2(dir.y, dir.x);
 
     // Normalize angles
     let angleDiff = targetAngle - ship.angle;

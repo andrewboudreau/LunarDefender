@@ -6,7 +6,7 @@ import { CONFIG, PlayerState } from './config.js';
 import { createShip, randomColor } from './entities/ship.js';
 import { createBullet } from './entities/projectiles.js';
 import { GameEvents, createEvent, logEvent } from './stats.js';
-import { registerRoom, unregisterRoom, startRoomUpdates, stopRoomUpdates } from './lobby.js';
+import { registerRoom, unregisterRoom, startRoomUpdates, stopRoomUpdates, cleanupStaleRoom, extendRoomTTL } from './lobby.js';
 
 let peer = null;
 let connections = []; // For host: all client connections
@@ -17,12 +17,16 @@ let onStateUpdate = null;
 let onGameStart = null;
 let onEventReceived = null;
 let getGameRunning = null;
+let getWorldSeed = null;
+let setWorldSeed = null;
 
 export function setPeerCallbacks(callbacks) {
     onStateUpdate = callbacks.onStateUpdate;
     onGameStart = callbacks.onGameStart;
     onEventReceived = callbacks.onEventReceived;
     getGameRunning = callbacks.getGameRunning;
+    getWorldSeed = callbacks.getWorldSeed;
+    setWorldSeed = callbacks.setWorldSeed;
 }
 
 export function getPeer() {
@@ -228,6 +232,8 @@ export function setupClient(roomCode, myName, myUserId, onReady) {
         console.error('Peer error:', err);
         if (err.type === 'peer-unavailable') {
             document.getElementById('join-status').textContent = 'Room not found!';
+            // Clean up stale room from lobby since host is gone
+            cleanupStaleRoom(roomCode);
         } else {
             document.getElementById('join-status').textContent = 'Error: ' + err.type;
         }
@@ -262,14 +268,21 @@ function handleClientMessage(clientId, data, ships) {
         const conn = connections.find(c => c.peer === clientId);
         if (conn && conn.open) {
             const isGameRunning = getGameRunning ? getGameRunning() : false;
+            const seed = getWorldSeed ? getWorldSeed() : null;
             conn.send({
                 type: 'init',
                 playerId: clientId,
                 ships: ships,
                 rocks: rocksRef || [],
                 bullets: bulletsRef || [],
-                gameRunning: isGameRunning
+                gameRunning: isGameRunning,
+                worldSeed: seed
             });
+        }
+
+        // Extend lobby TTL when someone joins
+        if (hostRoomCode && hostName) {
+            extendRoomTTL(hostRoomCode, hostName, Object.keys(ships).length);
         }
 
         updatePlayerCount(ships);
@@ -305,6 +318,10 @@ function handleClientMessage(clientId, data, ships) {
 
 function handleHostMessage(data) {
     if (data.type === 'init') {
+        // Set world seed for starfield before state update
+        if (data.worldSeed && setWorldSeed) {
+            setWorldSeed(data.worldSeed);
+        }
         if (onStateUpdate) {
             onStateUpdate(data.playerId, data.ships, data.rocks, data.bullets);
         }

@@ -3,12 +3,13 @@
 // ===========================================
 
 import { CONFIG } from './config.js';
+import { wrappedDistance, wrappedDirection } from './camera.js';
 
 export function wrapPosition(obj) {
-    if (obj.x < 0) obj.x = CONFIG.width;
-    if (obj.x > CONFIG.width) obj.x = 0;
-    if (obj.y < 0) obj.y = CONFIG.height;
-    if (obj.y > CONFIG.height) obj.y = 0;
+    if (obj.x < 0) obj.x += CONFIG.worldWidth;
+    if (obj.x >= CONFIG.worldWidth) obj.x -= CONFIG.worldWidth;
+    if (obj.y < 0) obj.y += CONFIG.worldHeight;
+    if (obj.y >= CONFIG.worldHeight) obj.y -= CONFIG.worldHeight;
 }
 
 export function distance(a, b) {
@@ -24,14 +25,15 @@ export function checkRockCollisions(rocks, onCollision) {
             const r1 = rocks[i];
             const r2 = rocks[j];
 
-            const dist = distance(r1, r2);
+            const dist = wrappedDistance(r1, r2);
             const minDist = r1.radius + r2.radius;
 
             if (dist < minDist && dist > 0) {
                 // Collision detected!
-                // Calculate collision normal
-                const nx = (r2.x - r1.x) / dist;
-                const ny = (r2.y - r1.y) / dist;
+                // Calculate collision normal using wrapped direction
+                const dir = wrappedDirection(r1, r2);
+                const nx = dir.x;
+                const ny = dir.y;
 
                 // Relative velocity
                 const dvx = r1.vx - r2.vx;
