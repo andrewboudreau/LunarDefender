@@ -22,8 +22,8 @@ export function createRock(x, y, size) {
 
     return {
         id: Math.random().toString(36).substr(2, 9),
-        x: x !== undefined ? x : Math.random() * CONFIG.width,
-        y: y !== undefined ? y : Math.random() * CONFIG.height,
+        x: x !== undefined ? x : Math.random() * CONFIG.worldWidth,
+        y: y !== undefined ? y : Math.random() * CONFIG.worldHeight,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         radius: radius,
@@ -81,13 +81,17 @@ export function drawRock(ctx, rock) {
 
 export function spawnInitialRocks(count) {
     const rocks = [];
-    for (let i = 0; i < count; i++) {
+    // Spawn more rocks for larger world
+    const worldScale = (CONFIG.worldWidth * CONFIG.worldHeight) / (CONFIG.viewportWidth * CONFIG.viewportHeight);
+    const scaledCount = Math.floor(count * worldScale);
+
+    for (let i = 0; i < scaledCount; i++) {
         // Spawn away from center
         let x, y;
         do {
-            x = Math.random() * CONFIG.width;
-            y = Math.random() * CONFIG.height;
-        } while (distance({ x, y }, { x: CONFIG.width / 2, y: CONFIG.height / 2 }) < 150);
+            x = Math.random() * CONFIG.worldWidth;
+            y = Math.random() * CONFIG.worldHeight;
+        } while (distance({ x, y }, { x: CONFIG.worldWidth / 2, y: CONFIG.worldHeight / 2 }) < 150);
 
         rocks.push(createRock(x, y, 0));
     }

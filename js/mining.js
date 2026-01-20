@@ -5,6 +5,7 @@
 import { CONFIG, LANDER_CONFIG, PlayerState } from './config.js';
 import { startThrust, stopThrust, playSuccess, playCrash } from './audio.js';
 import { getRandomUpgrade } from './upgrades.js';
+import { wrappedDistance } from './camera.js';
 
 let landerState = null;
 
@@ -294,15 +295,13 @@ export function checkNearbyRocks(ship, rocks, myId, playChimeCallback) {
         return;
     }
 
-    const distance = (a, b) => Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
-
-    // Only large rocks can be mined
+    // Only large rocks can be mined (use wrapped distance for toroidal world)
     let nearest = null;
     let nearestDist = CONFIG.miningDistance;
 
     for (const rock of rocks) {
         if (rock.sizeIndex === 0) {  // Only large rocks
-            const d = distance(ship, rock);
+            const d = wrappedDistance(ship, rock);
             if (d < nearestDist) {
                 nearestDist = d;
                 nearest = rock;

@@ -3,9 +3,10 @@
 // ===========================================
 
 import { CONFIG, PlayerState } from './config.js';
+import { updateCamera, snapCamera, resetCamera, getVisiblePositions, wrapWorldPosition, wrappedDistance } from './camera.js';
 import { playShoot, playClick, playExplosion, playChime, startThrust, stopThrust, playRockCollision } from './audio.js';
 import { updateParticles, renderParticles, spawnThrustParticle, addParticle, spawnRockCollisionParticles } from './particles.js';
-import { initStarfield, updateStarfield, renderStarfield } from './starfield.js';
+import { initStarfield, updateStarfield, renderStarfield, getSeed } from './starfield.js';
 import { createShip, updateShip, drawShip, drawMiningShipOnRock } from './entities/ship.js';
 import { createRock, updateRock, drawRock, spawnInitialRocks } from './entities/rock.js';
 import { createBullet, updateBullet, drawBullet, createMissile, updateMissile, drawMissile, createMine, updateMine, drawMine } from './entities/projectiles.js';
@@ -263,7 +264,7 @@ function checkBulletRockCollisions() {
             // Skip rocks being mined
             if (isRockBeingMined(rock.id)) continue;
 
-            if (distance(bullet, rock) < rock.radius + bulletRadius) {
+            if (wrappedDistance(bullet, rock) < rock.radius + bulletRadius) {
                 broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
                     playerId: bullet.ownerId,
                     rockId: rock.id,
@@ -327,7 +328,7 @@ function checkBulletRockCollisions() {
                 if (isExplosive) {
                     for (let k = rocks.length - 1; k >= 0; k--) {
                         if (isRockBeingMined(rocks[k].id)) continue;
-                        if (distance({ x: rockX, y: rockY }, rocks[k]) < 80) {
+                        if (wrappedDistance({ x: rockX, y: rockY }, rocks[k]) < 80) {
                             broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
                                 playerId: bullet.ownerId,
                                 rockId: rocks[k].id,
@@ -366,7 +367,7 @@ function checkMineCollisions() {
             // Skip rocks being mined
             if (isRockBeingMined(rock.id)) continue;
 
-            const dist = distance(mine, rock);
+            const dist = wrappedDistance(mine, rock);
 
             if (dist < mine.triggerRadius + rock.radius) {
                 explodeMine(mine, i);
@@ -389,7 +390,7 @@ function explodeMine(mine, index) {
         // Skip rocks being mined
         if (isRockBeingMined(rock.id)) continue;
 
-        if (distance({ x, y }, rock) < 80) {
+        if (wrappedDistance({ x, y }, rock) < 80) {
             broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
                 playerId: mine.ownerId,
                 rockId: rock.id,
@@ -452,7 +453,7 @@ function checkMissileRockCollisions() {
             // Skip rocks being mined
             if (isRockBeingMined(rock.id)) continue;
 
-            if (distance(missile, rock) < rock.radius + 10) {
+            if (wrappedDistance(missile, rock) < rock.radius + 10) {
                 broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
                     playerId: missile.ownerId,
                     rockId: rock.id,
@@ -595,7 +596,9 @@ export function update() {
         checkMineCollisions();
         checkRockCollisions(rocks, (x, y, speed, nx, ny) => {
             spawnRockCollisionParticles(x, y, speed, nx, ny);
-            if (speed > 0.5) {
+            // Only play sound if collision is visible on screen
+            const visiblePositions = getVisiblePositions(x, y, 0);
+            if (speed > 0.5 && visiblePositions.length > 0) {
                 playRockCollision(speed);
             }
         });
@@ -632,12 +635,25 @@ export function update() {
         updateStarfield();
     }
 
+    // Update camera to follow local player
+    if (myShip && myShip.state !== PlayerState.MINING) {
+        updateCamera(myShip);
+    }
+
     updateHUD(ships, rocks, myId);
 }
 
 // ===========================================
 // RENDER
 // ===========================================
+
+// Helper to draw an object at all visible wrapped positions
+function drawAtVisiblePositions(obj, radius, drawFn) {
+    const positions = getVisiblePositions(obj.x, obj.y, radius);
+    for (const screenPos of positions) {
+        drawFn(screenPos.x, screenPos.y);
+    }
+}
 
 export function render() {
     const myShip = ships[myId];
@@ -650,9 +666,9 @@ export function render() {
 
     // Clear
     ctx.fillStyle = '#0a0a1a';
-    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+    ctx.fillRect(0, 0, CONFIG.viewportWidth, CONFIG.viewportHeight);
 
-    // Draw starfield and nebulas
+    // Draw starfield and nebulas (TODO: make camera-aware)
     renderStarfield(ctx);
 
     // Check which rocks are being mined
@@ -662,127 +678,307 @@ export function render() {
             .map(s => s.miningRockId)
     );
 
-    // Draw rocks (highlight mineable ones and mined ones)
+    // Draw rocks with camera (at all visible wrapped positions)
     rocks.forEach(rock => {
-        drawRock(ctx, rock);
+        drawAtVisiblePositions(rock, rock.radius, (sx, sy) => {
+            // Draw rock at screen position using its vertices
+            ctx.save();
+            ctx.translate(sx, sy);
+            ctx.rotate(rock.rotation || 0);
 
-        // Highlight rocks being mined with a pulsing glow
-        if (minedRockIds.has(rock.id)) {
-            const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200);
-            ctx.strokeStyle = `rgba(255, 200, 100, ${0.5 + pulse * 0.5})`;
-            ctx.lineWidth = 3;
-            ctx.shadowColor = '#fa0';
-            ctx.shadowBlur = 10 + pulse * 10;
+            // Outer glow
+            ctx.shadowColor = rock.glowColor || '#446';
+            ctx.shadowBlur = 15 + rock.radius * 0.3;
+
+            // Fill with dark gradient
+            const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, rock.radius);
+            gradient.addColorStop(0, '#3a3a4a');
+            gradient.addColorStop(0.7, '#252530');
+            gradient.addColorStop(1, '#1a1a22');
+
+            ctx.fillStyle = gradient;
             ctx.beginPath();
-            ctx.arc(rock.x, rock.y, rock.radius + 5, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-        }
-
-        // Highlight if we're near and can mine
-        if (myShip && myShip.nearRock === rock) {
-            const progress = (myShip.miningCountdown || 0) / 120;
-            const ready = myShip.miningReady;
-
-            // Background circle (dashed, dim)
-            ctx.strokeStyle = ready ? '#4f4' : '#444';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
-            ctx.beginPath();
-            ctx.arc(rock.x, rock.y, rock.radius + 10, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // Progress arc (solid, bright)
-            if (progress > 0) {
-                ctx.strokeStyle = ready ? '#4f4' : '#fa0';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(rock.x, rock.y, rock.radius + 10, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
-                ctx.stroke();
+            if (rock.vertices && rock.vertices.length > 0) {
+                ctx.moveTo(rock.vertices[0].x, rock.vertices[0].y);
+                for (let i = 1; i < rock.vertices.length; i++) {
+                    ctx.lineTo(rock.vertices[i].x, rock.vertices[i].y);
+                }
             }
+            ctx.closePath();
+            ctx.fill();
 
-            // Glow effect when ready
-            if (ready) {
-                ctx.strokeStyle = '#4f4';
-                ctx.lineWidth = 2;
-                ctx.shadowColor = '#4f4';
-                ctx.shadowBlur = 15;
+            // Edge highlight
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = '#667';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.restore();
+
+            // Highlight rocks being mined
+            if (minedRockIds.has(rock.id)) {
+                const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200);
+                ctx.strokeStyle = `rgba(255, 200, 100, ${0.5 + pulse * 0.5})`;
+                ctx.lineWidth = 3;
+                ctx.shadowColor = '#fa0';
+                ctx.shadowBlur = 10 + pulse * 10;
                 ctx.beginPath();
-                ctx.arc(rock.x, rock.y, rock.radius + 10, 0, Math.PI * 2);
+                ctx.arc(sx, sy, rock.radius + 5, 0, Math.PI * 2);
                 ctx.stroke();
                 ctx.shadowBlur = 0;
             }
-        }
+
+            // Mining proximity indicator
+            if (myShip && myShip.nearRockId === rock.id) {
+                const progress = (myShip.miningCountdown || 0) / 120;
+                const ready = myShip.miningReady;
+
+                ctx.strokeStyle = ready ? '#4f4' : '#444';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.arc(sx, sy, rock.radius + 10, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                if (progress > 0) {
+                    ctx.strokeStyle = ready ? '#4f4' : '#fa0';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, rock.radius + 10, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                if (ready) {
+                    ctx.shadowColor = '#4f4';
+                    ctx.shadowBlur = 15;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, rock.radius + 10, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                }
+            }
+        });
     });
 
-    // Draw bullets
-    bullets.forEach(b => drawBullet(ctx, b));
+    // Draw bullets with camera
+    bullets.forEach(b => {
+        drawAtVisiblePositions(b, 5, (sx, sy) => {
+            ctx.fillStyle = '#ff0';
+            ctx.beginPath();
+            ctx.arc(sx, sy, b.radius || 3, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    });
 
-    // Draw missiles
-    missiles.forEach(m => drawMissile(ctx, m));
+    // Draw missiles with camera
+    missiles.forEach(m => {
+        drawAtVisiblePositions(m, 10, (sx, sy) => {
+            ctx.save();
+            ctx.translate(sx, sy);
+            ctx.rotate(m.angle || 0);
+            ctx.strokeStyle = '#4ff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(10, 0);
+            ctx.lineTo(-5, -4);
+            ctx.lineTo(-5, 4);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.restore();
+        });
+    });
 
-    // Draw mines
-    mines.forEach(m => drawMine(ctx, m));
+    // Draw mines with camera
+    mines.forEach(m => {
+        drawAtVisiblePositions(m, m.triggerRadius || 30, (sx, sy) => {
+            ctx.fillStyle = m.armed ? '#f4f' : '#848';
+            ctx.beginPath();
+            ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+            ctx.fill();
+            if (m.armed) {
+                ctx.strokeStyle = 'rgba(255, 100, 255, 0.3)';
+                ctx.beginPath();
+                ctx.arc(sx, sy, m.triggerRadius || 30, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        });
+    });
 
-    // Draw particles
+    // Draw particles (camera-aware)
     renderParticles(ctx);
 
-    // Draw ships
+    // Draw ships with camera
     Object.values(ships).forEach(ship => {
         if (ship.state === PlayerState.MINING) {
             // Draw tiny ship on the rock they're mining
             const miningRock = rocks.find(r => r.id === ship.miningRockId);
             if (miningRock) {
-                drawMiningShipOnRock(ctx, ship, miningRock);
+                // Draw at rock's visible positions
+                drawAtVisiblePositions(miningRock, miningRock.radius + 20, (sx, sy) => {
+                    const scale = 0.4;
+                    const orbitRadius = miningRock.radius + 8;
+                    const posAngle = ship.angle + Math.PI;
+                    const shipX = sx + Math.cos(posAngle) * orbitRadius;
+                    const shipY = sy + Math.sin(posAngle) * orbitRadius;
+
+                    ctx.save();
+                    ctx.translate(shipX, shipY);
+                    ctx.rotate(ship.angle);
+                    ctx.scale(scale, scale);
+                    ctx.strokeStyle = ship.color;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(CONFIG.shipSize, 0);
+                    ctx.lineTo(-CONFIG.shipSize / 2, -CONFIG.shipSize / 2);
+                    ctx.lineTo(-CONFIG.shipSize / 3, 0);
+                    ctx.lineTo(-CONFIG.shipSize / 2, CONFIG.shipSize / 2);
+                    ctx.closePath();
+                    ctx.stroke();
+                    ctx.restore();
+
+                    ctx.fillStyle = ship.color;
+                    ctx.font = '10px "Courier New", monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(ship.name + ' ⛏', sx, sy - miningRock.radius - 15);
+                });
             }
         } else {
-            drawShip(ctx, ship);
+            // Draw flying ship at all visible positions
+            drawAtVisiblePositions(ship, CONFIG.shipSize + 20, (sx, sy) => {
+                ctx.save();
+                ctx.translate(sx, sy);
+
+                // Name
+                ctx.fillStyle = ship.color;
+                ctx.font = '12px "Courier New", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(ship.name, 0, -CONFIG.shipSize - 10);
+
+                ctx.rotate(ship.angle);
+
+                // Ship body
+                ctx.strokeStyle = ship.color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(CONFIG.shipSize, 0);
+                ctx.lineTo(-CONFIG.shipSize / 2, -CONFIG.shipSize / 2);
+                ctx.lineTo(-CONFIG.shipSize / 3, 0);
+                ctx.lineTo(-CONFIG.shipSize / 2, CONFIG.shipSize / 2);
+                ctx.closePath();
+                ctx.stroke();
+
+                // Thrust flame
+                if (ship.thrusting) {
+                    ctx.strokeStyle = '#f80';
+                    ctx.beginPath();
+                    ctx.moveTo(-CONFIG.shipSize / 3, -CONFIG.shipSize / 4);
+                    ctx.lineTo(-CONFIG.shipSize, 0);
+                    ctx.lineTo(-CONFIG.shipSize / 3, CONFIG.shipSize / 4);
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            });
         }
     });
 
-    // Show mining prompt if near a rock
+    // Show mining prompt if near a rock (use camera position)
     if (myShip && myShip.nearRock) {
-        ctx.font = '14px "Courier New", monospace';
-        ctx.textAlign = 'center';
+        const positions = getVisiblePositions(myShip.nearRock.x, myShip.nearRock.y, myShip.nearRock.radius);
+        if (positions.length > 0) {
+            const pos = positions[0];
+            ctx.font = '14px "Courier New", monospace';
+            ctx.textAlign = 'center';
 
-        if (myShip.miningReady) {
-            ctx.fillStyle = '#4f4';
-            ctx.fillText('Press E to mine', myShip.nearRock.x, myShip.nearRock.y - myShip.nearRock.radius - 25);
-        } else {
-            const progress = (myShip.miningCountdown || 0) / 120;
-            if (progress > 0) {
-                ctx.fillStyle = '#fa0';
-                ctx.fillText('Matching velocity...', myShip.nearRock.x, myShip.nearRock.y - myShip.nearRock.radius - 25);
+            if (myShip.miningReady) {
+                ctx.fillStyle = '#4f4';
+                ctx.fillText('Press E to mine', pos.x, pos.y - myShip.nearRock.radius - 25);
             } else {
-                ctx.fillStyle = '#888';
-                ctx.fillText('Match speed to dock', myShip.nearRock.x, myShip.nearRock.y - myShip.nearRock.radius - 25);
+                const progress = (myShip.miningCountdown || 0) / 120;
+                if (progress > 0) {
+                    ctx.fillStyle = '#fa0';
+                    ctx.fillText('Matching velocity...', pos.x, pos.y - myShip.nearRock.radius - 25);
+                } else {
+                    ctx.fillStyle = '#888';
+                    ctx.fillText('Match speed to dock', pos.x, pos.y - myShip.nearRock.radius - 25);
+                }
             }
+            ctx.textAlign = 'left';
         }
-        ctx.textAlign = 'left';
     }
 
-    // Show upgrades
+    // Show upgrades (fixed position on screen)
     if (myShip && myShip.upgrades && myShip.upgrades.length > 0) {
         ctx.fillStyle = '#888';
         ctx.font = '12px "Courier New", monospace';
-        ctx.fillText('Upgrades:', CONFIG.width - 120, 20);
+        ctx.fillText('Upgrades:', CONFIG.viewportWidth - 120, 20);
         myShip.upgrades.forEach((upObj, i) => {
             const upgrade = Object.values(UPGRADES).find(u => u.id === upObj.id);
             if (upgrade) {
                 ctx.fillStyle = upgrade.color;
-                ctx.fillText(`${upgrade.name} (${upObj.ammo})`, CONFIG.width - 120, 35 + i * 15);
+                ctx.fillText(`${upgrade.name} (${upObj.ammo})`, CONFIG.viewportWidth - 120, 35 + i * 15);
             }
         });
     }
 
-    // Show host info in bottom left
+    // Show host info in bottom left (fixed position)
     if (currentRoomCode) {
         ctx.fillStyle = '#666';
         ctx.font = '12px "Courier New", monospace';
         const hostName = isHost ? myName : (Object.values(ships).find(s => s.id === currentRoomCode)?.name || 'Host');
-        ctx.fillText(`Host: ${hostName}`, 10, CONFIG.height - 30);
-        ctx.fillText(`Room: ${currentRoomCode}`, 10, CONFIG.height - 15);
+        ctx.fillText(`Host: ${hostName}`, 10, CONFIG.viewportHeight - 30);
+        ctx.fillText(`Room: ${currentRoomCode}`, 10, CONFIG.viewportHeight - 15);
+    }
+
+    // Draw minimap
+    drawMinimap(ctx, myShip);
+}
+
+// Draw a minimap showing the whole world
+function drawMinimap(ctx, myShip) {
+    const mapWidth = 150;
+    const mapHeight = 100;
+    const mapX = CONFIG.viewportWidth - mapWidth - 10;
+    const mapY = CONFIG.viewportHeight - mapHeight - 10;
+    const scaleX = mapWidth / CONFIG.worldWidth;
+    const scaleY = mapHeight / CONFIG.worldHeight;
+
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(mapX, mapY, mapWidth, mapHeight);
+    ctx.strokeStyle = '#444';
+    ctx.strokeRect(mapX, mapY, mapWidth, mapHeight);
+
+    // Draw rocks as dots
+    ctx.fillStyle = '#aaa';
+    rocks.forEach(rock => {
+        const rx = mapX + rock.x * scaleX;
+        const ry = mapY + rock.y * scaleY;
+        const size = Math.max(3, rock.radius * scaleX * 1.5);
+        ctx.beginPath();
+        ctx.arc(rx, ry, size, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // Draw ships as colored dots
+    Object.values(ships).forEach(ship => {
+        const sx = mapX + ship.x * scaleX;
+        const sy = mapY + ship.y * scaleY;
+        ctx.fillStyle = ship.color;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // Draw viewport rectangle
+    if (myShip) {
+        const vpX = mapX + (myShip.x - CONFIG.viewportWidth / 2) * scaleX;
+        const vpY = mapY + (myShip.y - CONFIG.viewportHeight / 2) * scaleY;
+        const vpW = CONFIG.viewportWidth * scaleX;
+        const vpH = CONFIG.viewportHeight * scaleY;
+        ctx.strokeStyle = '#4af';
+        ctx.strokeRect(vpX, vpY, vpW, vpH);
     }
 }
 
@@ -803,11 +999,29 @@ function gameLoop() {
 // START GAME
 // ===========================================
 
+// World seed for starfield (shared between host and clients)
+let worldSeed = null;
+
+export function getWorldSeed() {
+    return worldSeed;
+}
+
+export function setWorldSeed(seed) {
+    worldSeed = seed;
+    initStarfield(seed);
+}
+
 export function startGame() {
     gameRunning = true;
 
-    // Initialize starfield
-    initStarfield();
+    // Reset camera state for new game
+    resetCamera();
+
+    // Initialize starfield with seed (host generates, clients receive)
+    if (isHost && !worldSeed) {
+        worldSeed = Math.floor(Math.random() * 1000000);
+    }
+    initStarfield(worldSeed);
 
     // Increment games played
     if (myLifetimeStats) {

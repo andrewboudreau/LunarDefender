@@ -3,8 +3,18 @@
 // ===========================================
 
 export const CONFIG = {
-    width: 1200,
-    height: 800,
+    // Viewport (what you see)
+    viewportWidth: 1200,
+    viewportHeight: 800,
+
+    // World (total playable area) - 3x3 viewports
+    worldWidth: 3600,
+    worldHeight: 2400,
+
+    // Legacy aliases (for backward compat during transition)
+    get width() { return this.viewportWidth; },
+    get height() { return this.viewportHeight; },
+
     shipSize: 20,
     shipThrust: 0.08,
     shipMaxSpeed: 6,

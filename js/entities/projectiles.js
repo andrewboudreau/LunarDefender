@@ -4,6 +4,7 @@
 
 import { CONFIG } from '../config.js';
 import { distance, wrapPosition } from '../physics.js';
+import { wrappedDistance, wrappedDirection } from '../camera.js';
 import { addParticle } from '../particles.js';
 
 // ===========================================
@@ -28,11 +29,8 @@ export function updateBullet(bullet) {
     bullet.y += bullet.vy;
     bullet.life--;
 
-    // Bullets don't wrap - remove when off-screen
-    if (bullet.x < 0 || bullet.x > CONFIG.width ||
-        bullet.y < 0 || bullet.y > CONFIG.height) {
-        bullet.life = 0;
-    }
+    // Bullets wrap in the large world (life counter handles removal)
+    wrapPosition(bullet);
 }
 
 export function drawBullet(ctx, bullet) {
@@ -47,11 +45,11 @@ export function drawBullet(ctx, bullet) {
 // ===========================================
 
 export function createMissile(ship, rocks) {
-    // Find nearest rock to target
+    // Find nearest rock to target (using wrapped distance for toroidal world)
     let target = null;
     let nearestDist = 400; // Max lock range
     for (const rock of rocks) {
-        const d = distance(ship, rock);
+        const d = wrappedDistance(ship, rock);
         if (d < nearestDist) {
             nearestDist = d;
             target = rock;
@@ -81,8 +79,9 @@ export function updateMissile(missile, rocks) {
     const target = rocks.find(r => r.id === missile.targetId);
 
     if (target) {
-        // Calculate angle to target
-        const targetAngle = Math.atan2(target.y - missile.y, target.x - missile.x);
+        // Calculate direction to target using wrapped path (shortest in toroidal world)
+        const dir = wrappedDirection(missile, target);
+        const targetAngle = Math.atan2(dir.y, dir.x);
 
         // Gradually turn towards target
         let angleDiff = targetAngle - missile.angle;
