@@ -2453,20 +2453,31 @@ function handleHostMessage(data) {
             interpolation.lastUpdateTime = performance.now();
         }
 
-        // Preserve local mining state if we're actively in the mini-game
-        // (handles race condition where state arrives before host processes enter_mining)
-        const wasInMining = ships[myId] && ships[myId].state === PlayerState.MINING && landerState;
-        const miningRockId = wasInMining ? ships[myId].miningRockId : null;
+        // Preserve local mining-related state (these properties are client-side only)
+        const myShipLocal = ships[myId];
+        const localMiningState = myShipLocal ? {
+            nearRock: myShipLocal.nearRock,
+            miningCountdown: myShipLocal.miningCountdown,
+            miningReady: myShipLocal.miningReady,
+            // Also preserve if actively in mini-game
+            inMining: myShipLocal.state === PlayerState.MINING && landerState,
+            miningRockId: myShipLocal.miningRockId
+        } : null;
 
         // Update authoritative game state
         ships = data.ships;
         rocks = data.rocks;
         bullets = data.bullets;
 
-        // Restore local mining state if we were in the mini-game
-        if (wasInMining && ships[myId]) {
-            ships[myId].state = PlayerState.MINING;
-            ships[myId].miningRockId = miningRockId;
+        // Restore local mining state for our ship
+        if (localMiningState && ships[myId]) {
+            ships[myId].nearRock = localMiningState.nearRock;
+            ships[myId].miningCountdown = localMiningState.miningCountdown;
+            ships[myId].miningReady = localMiningState.miningReady;
+            if (localMiningState.inMining) {
+                ships[myId].state = PlayerState.MINING;
+                ships[myId].miningRockId = localMiningState.miningRockId;
+            }
         }
 
         updateHUD();
