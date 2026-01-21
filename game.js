@@ -1850,7 +1850,9 @@ function renderLander() {
 
 function enterMiningMode(rockId) {
     const myShip = ships[myId];
-    if (!myShip || myShip.state === PlayerState.MINING) return;
+    // Guard: don't re-enter if already in mining mode OR if landerState exists
+    // (landerState check handles race condition where host resets state to FLYING)
+    if (!myShip || myShip.state === PlayerState.MINING || landerState) return;
 
     myShip.state = PlayerState.MINING;
     myShip.miningRockId = rockId;
@@ -1930,19 +1932,6 @@ function checkNearbyRocks(ship) {
 
         // Compare by ID, not reference (references change when state is synced from host)
         const sameRock = ship.nearRock && ship.nearRock.id === nearest.id;
-
-        // Debug logging for clients
-        if (!isHost && ship.id === myId && Math.random() < 0.02) {
-            console.log('Mining debug:', {
-                sameRock,
-                velocityMatched,
-                velDiffX: velDiffX.toFixed(2),
-                velDiffY: velDiffY.toFixed(2),
-                countdown: ship.miningCountdown,
-                nearRockId: ship.nearRock?.id,
-                nearestId: nearest.id
-            });
-        }
 
         if (sameRock && velocityMatched) {
             // Continue countdown
