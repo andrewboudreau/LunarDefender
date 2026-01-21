@@ -132,7 +132,10 @@ function exitMiningMode(success, upgrade) {
     if (!myShip) return;
 
     // Find the rock and reposition ship to its current location
-    const rock = rocks.find(r => r.id === myShip.miningRockId);
+    const rockId = myShip.miningRockId;
+    const rockIndex = rocks.findIndex(r => r.id === rockId);
+    const rock = rockIndex >= 0 ? rocks[rockIndex] : null;
+
     if (rock) {
         // Position ship just outside the rock, matching its velocity
         const exitAngle = myShip.angle;
@@ -153,6 +156,11 @@ function exitMiningMode(success, upgrade) {
                 type: upgrade.type
             });
             console.log('Got upgrade:', upgrade.name);
+        }
+
+        // Successfully mined - destroy and split the rock (host only)
+        if (isHost && rockIndex >= 0) {
+            destroyRock(rockIndex, myId, true);
         }
     }
 
@@ -260,6 +268,182 @@ function isRockBeingMined(rockId) {
     return Object.values(ships).some(
         ship => ship.state === PlayerState.MINING && ship.miningRockId === rockId
     );
+}
+
+// Destroy a rock - split it and spawn particles
+function destroyRock(rockIndex, playerId = null, shouldSplit = true) {
+    if (!isHost) return;
+    if (rockIndex < 0 || rockIndex >= rocks.length) return;
+
+    const rock = rocks[rockIndex];
+    const rockX = rock.x;
+    const rockY = rock.y;
+    const rockSize = rock.sizeIndex;
+
+    // Broadcast event
+    broadcastEvent(createEvent(GameEvents.ROCK_DESTROYED, {
+        playerId: playerId,
+        rockId: rock.id,
+        rockSize: rockSize
+    }));
+
+    // Split into smaller rocks if not smallest size
+    if (shouldSplit && rockSize < CONFIG.rockSizes.length - 1) {
+        for (let k = 0; k < 2; k++) {
+            rocks.push(createRock(rockX, rockY, rockSize + 1));
+        }
+    }
+
+    // Remove the rock
+    rocks.splice(rockIndex, 1);
+
+    // Play sound
+    playExplosion(rockSize);
+
+    // Spawn explosion particles
+    const particleCount = (3 - rockSize) * 12 + 8;
+    for (let p = 0; p < particleCount; p++) {
+        const angle = (p / particleCount) * Math.PI * 2 + Math.random() * 0.5;
+        const speed = (2 + (2 - rockSize)) * (0.3 + Math.random() * 0.7);
+        const isGlowing = Math.random() > 0.7;
+
+        addParticle({
+            x: rockX + (Math.random() - 0.5) * 15,
+            y: rockY + (Math.random() - 0.5) * 15,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            color: isGlowing ? '#fa8' : (Math.random() > 0.5 ? '#888' : '#666'),
+            life: 25 + Math.random() * 35,
+            maxLife: 60,
+            size: 1 + Math.random() * (3 - rockSize),
+            glow: isGlowing
+        });
+    }
+
+    // Central flash
+    addParticle({
+        x: rockX,
+        y: rockY,
+        vx: 0,
+        vy: 0,
+        color: '#fff',
+        life: 8,
+        maxLife: 8,
+        size: 15 + (2 - rockSize) * 8,
+        glow: true
+    });
+}
+
+// Kill a ship - explosion, clear upgrades, increment death
+function killShip(ship) {
+    if (!ship || !isHost) return;
+
+    // Increment death counter
+    if (ship.stats) {
+        ship.stats.deaths++;
+    }
+
+    // Clear all upgrades
+    ship.upgrades = [];
+
+    // Spawn death explosion particles
+    const particleCount = 30;
+    for (let p = 0; p < particleCount; p++) {
+        const angle = (p / particleCount) * Math.PI * 2 + Math.random() * 0.3;
+        const speed = 2 + Math.random() * 3;
+
+        addParticle({
+            x: ship.x + (Math.random() - 0.5) * 10,
+            y: ship.y + (Math.random() - 0.5) * 10,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            color: Math.random() > 0.5 ? ship.color : '#fa8',
+            life: 30 + Math.random() * 30,
+            maxLife: 60,
+            size: 2 + Math.random() * 3,
+            glow: Math.random() > 0.6
+        });
+    }
+
+    // Central flash
+    addParticle({
+        x: ship.x,
+        y: ship.y,
+        vx: 0,
+        vy: 0,
+        color: '#fff',
+        life: 10,
+        maxLife: 10,
+        size: 25,
+        glow: true
+    });
+
+    playExplosion(0); // Big explosion sound
+
+    // Respawn ship at random position
+    ship.x = Math.random() * CONFIG.width;
+    ship.y = Math.random() * CONFIG.height;
+    ship.vx = 0;
+    ship.vy = 0;
+
+    // Broadcast death event
+    broadcastEvent(createEvent(GameEvents.PLAYER_DEATH, {
+        playerId: ship.id
+    }));
+}
+
+// Check for high-speed ship-rock collisions
+function checkShipRockCollisions() {
+    if (!isHost) return;
+
+    const SPEED_MULTIPLIER = 2.5; // Rock must be moving this much faster than ship speed
+
+    for (const ship of Object.values(ships)) {
+        if (ship.state !== PlayerState.FLYING) continue;
+
+        const shipSpeed = Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy);
+
+        for (let j = rocks.length - 1; j >= 0; j--) {
+            const rock = rocks[j];
+
+            // Check collision
+            if (distance(ship, rock) < rock.radius + CONFIG.shipSize) {
+                // Calculate relative velocity
+                const relVx = rock.vx - ship.vx;
+                const relVy = rock.vy - ship.vy;
+                const relSpeed = Math.sqrt(relVx * relVx + relVy * relVy);
+
+                // Check if relative speed is high enough to kill
+                const killThreshold = Math.max(3, shipSpeed * SPEED_MULTIPLIER);
+
+                if (relSpeed > killThreshold) {
+                    // Check for shield
+                    const shieldUpgrade = ship.upgrades?.find(u => u.id === 'shield');
+                    if (shieldUpgrade && shieldUpgrade.ammo > 0) {
+                        // Shield absorbs hit
+                        shieldUpgrade.ammo--;
+                        if (shieldUpgrade.ammo <= 0) {
+                            ship.upgrades = ship.upgrades.filter(u => u.id !== 'shield');
+                        }
+                        // Push ship away from rock
+                        const pushAngle = Math.atan2(ship.y - rock.y, ship.x - rock.x);
+                        ship.vx = Math.cos(pushAngle) * 5;
+                        ship.vy = Math.sin(pushAngle) * 5;
+                    } else {
+                        // Kill the ship
+                        killShip(ship);
+                    }
+                } else {
+                    // Low speed collision - just push apart
+                    const pushAngle = Math.atan2(ship.y - rock.y, ship.x - rock.x);
+                    ship.x = rock.x + Math.cos(pushAngle) * (rock.radius + CONFIG.shipSize + 5);
+                    ship.y = rock.y + Math.sin(pushAngle) * (rock.radius + CONFIG.shipSize + 5);
+                    ship.vx += Math.cos(pushAngle) * 0.5;
+                    ship.vy += Math.sin(pushAngle) * 0.5;
+                }
+            }
+        }
+    }
 }
 
 function checkBulletRockCollisions() {
@@ -604,6 +788,7 @@ export function update() {
         checkBulletRockCollisions();
         checkMissileRockCollisions();
         checkMineCollisions();
+        checkShipRockCollisions();
         checkRockCollisions(rocks, (x, y, speed, nx, ny) => {
             spawnRockCollisionParticles(x, y, speed, nx, ny);
             if (speed > 0.5) {

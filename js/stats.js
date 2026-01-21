@@ -77,7 +77,8 @@ export const GameEvents = {
     PLAYER_JOINED: 'player_joined',
     PLAYER_LEFT: 'player_left',
     PLAYER_MINING: 'player_mining',
-    PLAYER_UPGRADE: 'player_upgrade'
+    PLAYER_UPGRADE: 'player_upgrade',
+    PLAYER_DEATH: 'player_death'
 };
 
 let eventLog = [];
