@@ -1928,7 +1928,9 @@ function checkNearbyRocks(ship) {
         const velDiffY = Math.abs(ship.vy - nearest.vy);
         const velocityMatched = velDiffX < 1.5 && velDiffY < 1.5;
 
-        if (ship.nearRock === nearest && velocityMatched) {
+        // Compare by ID, not reference (references change when state is synced from host)
+        const sameRock = ship.nearRock && ship.nearRock.id === nearest.id;
+        if (sameRock && velocityMatched) {
             // Continue countdown
             ship.miningCountdown = (ship.miningCountdown || 0) + 1;
             // 2 seconds at 60fps = 120 frames
