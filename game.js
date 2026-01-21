@@ -2397,6 +2397,30 @@ function handleClientMessage(clientId, data) {
             // Store input for physics update
             ships[clientId].input = data;
         }
+    } else if (data.type === 'enter_mining') {
+        // Client wants to enter mining mode
+        if (ships[clientId] && ships[clientId].state !== PlayerState.MINING) {
+            ships[clientId].state = PlayerState.MINING;
+            ships[clientId].miningRockId = data.rockId;
+            broadcastEvent(createEvent(GameEvents.PLAYER_MINING, { playerId: clientId, rockId: data.rockId }));
+            console.log('Client', clientId, 'entered mining mode for rock:', data.rockId);
+        }
+    } else if (data.type === 'exit_mining') {
+        // Client exited mining mode
+        if (ships[clientId]) {
+            ships[clientId].state = PlayerState.FLYING;
+            ships[clientId].miningRockId = null;
+            if (data.success && data.upgrade) {
+                if (!ships[clientId].upgrades.includes(data.upgrade)) {
+                    ships[clientId].upgrades.push(data.upgrade);
+                }
+            }
+            broadcastEvent(createEvent(GameEvents.PLAYER_LEFT, {
+                playerId: clientId,
+                upgrade: data.success ? data.upgrade : null
+            }));
+            console.log('Client', clientId, 'exited mining mode, success:', data.success);
+        }
     }
 }
 
@@ -2426,10 +2450,23 @@ function handleHostMessage(data) {
             };
             interpolation.lastUpdateTime = performance.now();
         }
+
+        // Preserve local mining state if we're actively in the mini-game
+        // (handles race condition where state arrives before host processes enter_mining)
+        const wasInMining = ships[myId] && ships[myId].state === PlayerState.MINING && landerState;
+        const miningRockId = wasInMining ? ships[myId].miningRockId : null;
+
         // Update authoritative game state
         ships = data.ships;
         rocks = data.rocks;
         bullets = data.bullets;
+
+        // Restore local mining state if we were in the mini-game
+        if (wasInMining && ships[myId]) {
+            ships[myId].state = PlayerState.MINING;
+            ships[myId].miningRockId = miningRockId;
+        }
+
         updateHUD();
     } else if (data.type === 'start') {
         ships = data.ships;
