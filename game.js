@@ -1930,6 +1930,20 @@ function checkNearbyRocks(ship) {
 
         // Compare by ID, not reference (references change when state is synced from host)
         const sameRock = ship.nearRock && ship.nearRock.id === nearest.id;
+
+        // Debug logging for clients
+        if (!isHost && ship.id === myId && Math.random() < 0.02) {
+            console.log('Mining debug:', {
+                sameRock,
+                velocityMatched,
+                velDiffX: velDiffX.toFixed(2),
+                velDiffY: velDiffY.toFixed(2),
+                countdown: ship.miningCountdown,
+                nearRockId: ship.nearRock?.id,
+                nearestId: nearest.id
+            });
+        }
+
         if (sameRock && velocityMatched) {
             // Continue countdown
             ship.miningCountdown = (ship.miningCountdown || 0) + 1;
