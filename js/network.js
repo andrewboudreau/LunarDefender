@@ -300,6 +300,27 @@ function handleClientMessage(clientId, data, ships) {
             // Store input for physics update
             ships[clientId].input = data;
         }
+    } else if (data.type === 'enter_mining') {
+        // Client wants to enter mining mode
+        if (ships[clientId] && ships[clientId].state !== PlayerState.MINING) {
+            ships[clientId].state = PlayerState.MINING;
+            ships[clientId].miningRockId = data.rockId;
+            broadcastEvent(createEvent(GameEvents.PLAYER_MINING, { playerId: clientId, rockId: data.rockId }));
+            console.log('Client', clientId, 'entered mining mode for rock:', data.rockId);
+        }
+    } else if (data.type === 'exit_mining') {
+        // Client exited mining mode
+        if (ships[clientId]) {
+            ships[clientId].state = PlayerState.FLYING;
+            ships[clientId].miningRockId = null;
+            if (data.success && data.upgrade) {
+                if (!ships[clientId].upgrades) ships[clientId].upgrades = [];
+                if (!ships[clientId].upgrades.includes(data.upgrade)) {
+                    ships[clientId].upgrades.push(data.upgrade);
+                }
+            }
+            console.log('Client', clientId, 'exited mining mode, success:', data.success);
+        }
     }
 }
 
@@ -394,6 +415,13 @@ export function sendInputToHost(keys, lastShot, lastAltFire) {
         return { lastShot: newLastShot, lastAltFire: newLastAltFire };
     }
     return { lastShot, lastAltFire };
+}
+
+// Generic send to host (for mining messages, etc.)
+export function sendToHost(data) {
+    if (hostConnection && hostConnection.open) {
+        hostConnection.send(data);
+    }
 }
 
 export function updatePlayerCount(ships) {

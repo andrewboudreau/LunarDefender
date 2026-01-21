@@ -14,7 +14,7 @@ import { UPGRADES, hasUpgrade, useUpgradeAmmo, getRandomUpgrade } from './upgrad
 import { createLanderState, updateLander, renderLander, getLanderState, setLanderState, checkNearbyRocks } from './mining.js';
 import { GameEvents, createEvent, logEvent, createSessionStats, saveLifetimeStats, loadLifetimeStats } from './stats.js';
 import { getBotInput } from './bot.js';
-import { broadcastState, broadcastEvent, broadcastGameStart, sendInputToHost, updatePlayerCount, setGameRefs } from './network.js';
+import { broadcastState, broadcastEvent, broadcastGameStart, sendInputToHost, sendToHost, updatePlayerCount, setGameRefs } from './network.js';
 import { updateHUD, resizeCanvas, showGameUI } from './ui.js';
 import { getKeys, setExitMiningCallback } from './input.js';
 
@@ -107,7 +107,8 @@ export function setLifetimeStats(stats) {
 
 function enterMiningMode(rockId) {
     const myShip = ships[myId];
-    if (!myShip || myShip.state === PlayerState.MINING) return;
+    // Guard: don't re-enter if already mining OR if lander mini-game is active
+    if (!myShip || myShip.state === PlayerState.MINING || getLanderState()) return;
 
     myShip.state = PlayerState.MINING;
     myShip.miningRockId = rockId;
@@ -118,6 +119,9 @@ function enterMiningMode(rockId) {
     // Broadcast state change
     if (isHost) {
         broadcastEvent(createEvent(GameEvents.PLAYER_MINING, { playerId: myId, rockId }));
+    } else {
+        // Client: notify host we're entering mining mode
+        sendToHost({ type: 'enter_mining', rockId });
     }
 
     console.log('Entered mining mode for rock:', rockId);
@@ -161,6 +165,13 @@ function exitMiningMode(success, upgrade) {
             playerId: myId,
             upgrade: success ? upgrade?.id : null
         }));
+    } else {
+        // Client: notify host we're exiting mining mode
+        sendToHost({
+            type: 'exit_mining',
+            success,
+            upgrade: success ? upgrade?.id : null
+        });
     }
 }
 
