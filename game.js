@@ -1852,7 +1852,16 @@ function enterMiningMode(rockId) {
     const myShip = ships[myId];
     // Guard: don't re-enter if already in mining mode OR if landerState exists
     // (landerState check handles race condition where host resets state to FLYING)
-    if (!myShip || myShip.state === PlayerState.MINING || landerState) return;
+    console.log('[MINING-v2] enterMiningMode called:', {
+        rockId,
+        hasShip: !!myShip,
+        shipState: myShip?.state,
+        landerStateExists: !!landerState
+    });
+    if (!myShip || myShip.state === PlayerState.MINING || landerState) {
+        console.log('[MINING-v2] Guard blocked entry');
+        return;
+    }
 
     myShip.state = PlayerState.MINING;
     myShip.miningRockId = rockId;
@@ -1867,7 +1876,7 @@ function enterMiningMode(rockId) {
         hostConnection.send({ type: 'enter_mining', rockId });
     }
 
-    console.log('Entered mining mode for rock:', rockId);
+    console.log('[MINING-v2] Successfully entered mining mode for rock:', rockId);
 }
 
 function exitMiningMode(success, upgrade) {
