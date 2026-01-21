@@ -921,6 +921,64 @@ let bullets = [];
 let missiles = [];  // Homing missiles
 let mines = [];     // Proximity mines
 
+// ============== CLIENT INTERPOLATION ==============
+// State buffering for smooth client-side rendering
+let interpolation = {
+    enabled: true,
+    previousState: null,    // Previous network state
+    targetState: null,      // Most recent network state
+    lastUpdateTime: 0,      // When we received the last state
+    renderTime: 0           // Current interpolation time
+};
+
+// Linear interpolation
+function lerp(a, b, t) {
+    return a + (b - a) * t;
+}
+
+// Angle interpolation (handles wraparound)
+function lerpAngle(a, b, t) {
+    let diff = b - a;
+    // Normalize to [-PI, PI]
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    return a + diff * t;
+}
+
+// Position interpolation with world wrapping
+function lerpPositionWrapped(prev, target, t, maxVal) {
+    let diff = target - prev;
+    // If the difference is more than half the world, we wrapped
+    if (Math.abs(diff) > maxVal / 2) {
+        // Entity wrapped around - adjust for shortest path
+        if (diff > 0) {
+            prev += maxVal;
+        } else {
+            target += maxVal;
+        }
+        let result = lerp(prev, target, t);
+        // Normalize back to valid range
+        if (result >= maxVal) result -= maxVal;
+        if (result < 0) result += maxVal;
+        return result;
+    }
+    return lerp(prev, target, t);
+}
+
+// Get interpolated position for an entity
+function getInterpolatedEntity(prevEntity, targetEntity, t) {
+    if (!prevEntity) return targetEntity;
+    if (!targetEntity) return prevEntity;
+
+    return {
+        ...targetEntity,
+        x: lerpPositionWrapped(prevEntity.x, targetEntity.x, t, CONFIG.width),
+        y: lerpPositionWrapped(prevEntity.y, targetEntity.y, t, CONFIG.height),
+        angle: prevEntity.angle !== undefined ? lerpAngle(prevEntity.angle, targetEntity.angle, t) : targetEntity.angle,
+        rotation: prevEntity.rotation !== undefined ? lerpAngle(prevEntity.rotation, targetEntity.rotation, t) : targetEntity.rotation
+    };
+}
+
 // Local input state
 let keys = {
     left: false,
@@ -2348,11 +2406,27 @@ function handleHostMessage(data) {
         ships = data.ships;
         rocks = data.rocks;
         bullets = data.bullets;
+        // Initialize interpolation state
+        interpolation.previousState = null;
+        interpolation.targetState = { ships: deepCopy(ships), rocks: deepCopy(rocks), bullets: deepCopy(bullets) };
+        interpolation.lastUpdateTime = performance.now();
         if (data.gameRunning) {
             startGame();
         }
     } else if (data.type === 'state') {
-        // Update game state from host
+        // Buffer states for interpolation (clients only)
+        if (!isHost && interpolation.enabled) {
+            // Move current target to previous
+            interpolation.previousState = interpolation.targetState;
+            // Store new target
+            interpolation.targetState = {
+                ships: deepCopy(data.ships),
+                rocks: deepCopy(data.rocks),
+                bullets: deepCopy(data.bullets)
+            };
+            interpolation.lastUpdateTime = performance.now();
+        }
+        // Update authoritative game state
         ships = data.ships;
         rocks = data.rocks;
         bullets = data.bullets;
@@ -2361,11 +2435,26 @@ function handleHostMessage(data) {
         ships = data.ships;
         rocks = data.rocks;
         bullets = data.bullets;
+        // Initialize interpolation state
+        interpolation.previousState = null;
+        interpolation.targetState = { ships: deepCopy(ships), rocks: deepCopy(rocks), bullets: deepCopy(bullets) };
+        interpolation.lastUpdateTime = performance.now();
         startGame();
     } else if (data.type === 'event') {
         // Handle game events from host
         handleGameEvent(data.event);
     }
+}
+
+// Deep copy helper for state buffering
+function deepCopy(obj) {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(item => deepCopy(item));
+    const copy = {};
+    for (const key in obj) {
+        copy[key] = deepCopy(obj[key]);
+    }
+    return copy;
 }
 
 function broadcastState() {
@@ -2747,6 +2836,41 @@ function render() {
         return;
     }
 
+    // Calculate interpolated state for smooth client rendering
+    let renderShips = ships;
+    let renderRocks = rocks;
+    let renderBullets = bullets;
+
+    if (!isHost && interpolation.enabled && interpolation.previousState && interpolation.targetState) {
+        const now = performance.now();
+        const elapsed = now - interpolation.lastUpdateTime;
+        // Interpolate over the network tick interval, with some smoothing buffer
+        const t = Math.min(1, elapsed / CONFIG.networkTickRate);
+
+        // Interpolate ships
+        renderShips = {};
+        for (const id in interpolation.targetState.ships) {
+            const prevShip = interpolation.previousState.ships ? interpolation.previousState.ships[id] : null;
+            const targetShip = interpolation.targetState.ships[id];
+            renderShips[id] = getInterpolatedEntity(prevShip, targetShip, t);
+        }
+
+        // Interpolate rocks (match by id)
+        renderRocks = interpolation.targetState.rocks.map(targetRock => {
+            const prevRock = interpolation.previousState.rocks ?
+                interpolation.previousState.rocks.find(r => r.id === targetRock.id) : null;
+            return getInterpolatedEntity(prevRock, targetRock, t);
+        });
+
+        // Interpolate bullets (match by id or index)
+        renderBullets = interpolation.targetState.bullets.map((targetBullet, i) => {
+            const prevBullet = interpolation.previousState.bullets ?
+                interpolation.previousState.bullets.find(b => b.id === targetBullet.id) ||
+                interpolation.previousState.bullets[i] : null;
+            return getInterpolatedEntity(prevBullet, targetBullet, t);
+        });
+    }
+
     // Clear
     ctx.fillStyle = '#0a0a1a';
     ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
@@ -2755,10 +2879,10 @@ function render() {
     renderStarfield();
 
     // Draw rocks (highlight mineable ones)
-    rocks.forEach(rock => {
+    renderRocks.forEach(rock => {
         drawRock(rock);
-        // Highlight if we're near and can mine
-        if (myShip && myShip.nearRock === rock) {
+        // Highlight if we're near and can mine (compare by ID for interpolated rocks)
+        if (myShip && myShip.nearRock && myShip.nearRock.id === rock.id) {
             const progress = (myShip.miningCountdown || 0) / 120; // 0 to 1
             const ready = myShip.miningReady;
 
@@ -2796,13 +2920,13 @@ function render() {
     });
 
     // Draw bullets
-    bullets.forEach(drawBullet);
+    renderBullets.forEach(drawBullet);
 
     // Draw particles
     renderParticles();
 
     // Draw ships (skip those who are mining)
-    Object.values(ships).forEach(ship => {
+    Object.values(renderShips).forEach(ship => {
         if (ship.state !== PlayerState.MINING) {
             drawShip(ship);
         }
@@ -2913,6 +3037,7 @@ function setupInput() {
     setupTouchButton('thrust-btn', 'up');
     setupTouchButton('fire-btn', 'space');
     setupTouchButton('mine-btn', 'mine');
+    setupTouchButton('alt-fire-btn', 'altFire');
 }
 
 function setupTouchButton(btnId, key) {

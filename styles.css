@@ -334,6 +334,17 @@ canvas {
     background: rgba(68, 255, 68, 0.6);
 }
 
+#alt-fire-btn {
+    background: rgba(170, 68, 255, 0.3);
+    border-color: #a4f;
+    color: #a4f;
+}
+
+#alt-fire-btn:active,
+#alt-fire-btn.active {
+    background: rgba(170, 68, 255, 0.6);
+}
+
 /* 7. Lobby */
 #lobby-section {
     margin-top: 15px;
