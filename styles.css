@@ -61,6 +61,19 @@ body {
     align-items: center;
     justify-content: center;
     min-height: 100vh;
+    position: relative;
+}
+
+/* Game canvas - always visible, behind menu */
+#game {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    display: block;
+    object-fit: contain;
 }
 
 #game-wrapper {
@@ -70,14 +83,7 @@ body {
     position: fixed;
     top: 0;
     left: 0;
-    background: var(--color-bg);
-}
-
-#game-wrapper canvas {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
+    z-index: 1;
 }
 
 /* 4. Menu Components */
@@ -86,6 +92,11 @@ body {
     padding: var(--space-lg);
     width: 100%;
     max-width: 400px;
+    position: relative;
+    z-index: 10;
+    background: rgba(10, 10, 26, 0.85);
+    border-radius: var(--radius-md);
+    backdrop-filter: blur(5px);
 }
 
 #menu h1 {
@@ -207,6 +218,7 @@ canvas {
     top: 10px;
     left: 10px;
     font-size: 1.2em;
+    z-index: 20;
 }
 
 #controls-help {
@@ -215,6 +227,7 @@ canvas {
     left: 10px;
     font-size: 0.9em;
     color: var(--color-text-muted);
+    z-index: 20;
 }
 
 #fullscreen-btn {
@@ -223,6 +236,7 @@ canvas {
     right: 10px;
     background: var(--color-primary-dim);
     border: 2px solid var(--color-primary);
+    z-index: 20;
     color: var(--color-primary);
     width: 44px;
     height: 44px;
@@ -243,6 +257,7 @@ canvas {
     top: 10px;
     right: 60px;
     background: var(--color-success-glow);
+    z-index: 20;
     border: 2px solid var(--color-success);
     color: var(--color-success);
     width: 44px;
@@ -267,6 +282,7 @@ canvas {
     padding: var(--space-md);
     justify-content: space-between;
     pointer-events: none;
+    z-index: 20;
 }
 
 .touch-btn {

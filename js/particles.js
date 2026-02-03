@@ -3,6 +3,7 @@
 // ===========================================
 
 import { CONFIG } from './config.js';
+import { getVisiblePositions, wrapWorldPosition } from './camera.js';
 
 let particles = [];
 
@@ -130,6 +131,9 @@ export function updateParticles() {
         p.vy *= 0.98;
         p.life--;
 
+        // Wrap particles in world coordinates
+        wrapWorldPosition(p);
+
         if (p.life <= 0) {
             particles.splice(i, 1);
         }
@@ -139,20 +143,27 @@ export function updateParticles() {
 export function renderParticles(ctx) {
     for (const p of particles) {
         const alpha = p.life / p.maxLife;
-        ctx.globalAlpha = alpha;
+        const size = p.size * (0.3 + alpha * 0.7);
 
-        // Glow effect for bright particles
-        if (p.glow) {
-            ctx.shadowColor = p.color;
-            ctx.shadowBlur = p.size * 3;
+        // Get visible screen positions (handles wrapping at world edges)
+        const positions = getVisiblePositions(p.x, p.y, size);
+
+        for (const pos of positions) {
+            ctx.globalAlpha = alpha;
+
+            // Glow effect for bright particles
+            if (p.glow) {
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = p.size * 3;
+            }
+
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, size, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.shadowBlur = 0;
         }
-
-        ctx.fillStyle = p.color;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * (0.3 + alpha * 0.7), 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.shadowBlur = 0;
     }
     ctx.globalAlpha = 1;
 }

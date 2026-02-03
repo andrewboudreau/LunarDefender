@@ -6,7 +6,7 @@
 const BLOB_BASE = 'https://belongtouspublic.blob.core.windows.net/lunardefender';
 const SAS_TOKEN = 'sp=raw&st=2026-01-19T06:00:41Z&se=2027-01-09T14:15:41Z&spr=https&sv=2024-11-04&sr=c&sig=U1R%2F%2BqUBUl4u7UPVmWyPyY85V2rHCCz81ryAQchfUjE%3D';
 const LOBBY_FILE = 'lobby.json';
-const ROOM_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const ROOM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const UPDATE_INTERVAL_MS = 30 * 1000; // 30 seconds
 
 let currentETag = null;
@@ -211,4 +211,16 @@ export function stopRoomUpdates() {
 export async function getAvailableRooms() {
     const lobby = await fetchLobby();
     return lobby.rooms.sort((a, b) => b.ts - a.ts); // Newest first
+}
+
+// Clean up a stale room (call when join fails)
+export async function cleanupStaleRoom(code) {
+    console.log('Cleaning up stale room:', code);
+    return unregisterRoom(code);
+}
+
+// Extend room TTL (call when someone joins successfully)
+export async function extendRoomTTL(code, hostName, playerCount) {
+    console.log('Extending room TTL:', code);
+    return updateRoom(code, hostName, playerCount);
 }
